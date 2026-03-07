@@ -16,7 +16,6 @@
   "dependencies": {
     "axios": "^1.6.2",
     "pinia": "^2.1.7",
-    "simplex-noise": "^4.0.3",
     "vue": "^3.4.0",
     "vue-router": "^4.2.5"
   },
