@@ -521,11 +521,11 @@ onMounted(() => {
         return
       }
       const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop
-      const isScrollingDown = currentScrollTop > lastScrollY
+      const scrollingDownThisFrame = currentScrollTop > lastScrollY
       const hasActivationPoint = activationScrollY !== null
       const crossedActivation =
         hasActivationPoint &&
-        isScrollingDown &&
+        scrollingDownThisFrame &&
         lastScrollY < (activationScrollY as number) &&
         currentScrollTop >= (activationScrollY as number)
       lastScrollY = currentScrollTop
