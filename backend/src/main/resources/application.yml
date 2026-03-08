@@ -51,6 +51,7 @@ socratica:
   gemini:
     api-key: ${GEMINI_API_KEY:}
     model: ${GEMINI_MODEL:gemini-1.5-flash}
+    live-model: ${GEMINI_LIVE_MODEL:gemini-live-2.5-flash-preview}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
   oauth:
