@@ -16,6 +16,10 @@ export interface LiveSessionTokenResponse {
   newSessionExpiresAt: string
 }
 
+export interface AudioTranscriptionResponse {
+  transcript: string
+}
+
 export interface TutorTranscriptEntry {
   speaker: string
   text: string
@@ -75,6 +79,19 @@ export const liveVoiceService = {
   async createSessionToken(): Promise<LiveSessionTokenResponse> {
     const response = await api.post<LiveSessionTokenResponse>('/ai/live/session-token')
     return response.data
+  },
+
+  async transcribeAudio(audio: Blob): Promise<string> {
+    const formData = new FormData()
+    formData.append('audio', audio, 'speech.wav')
+
+    const response = await api.post<AudioTranscriptionResponse>('/ai/live/transcribe', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    })
+
+    return response.data.transcript ?? ''
   },
 
   async listTutorSessions(): Promise<SavedTutorSession[]> {

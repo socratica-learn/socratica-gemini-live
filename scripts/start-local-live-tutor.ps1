@@ -5,9 +5,10 @@ if (-not (Test-Path ".env")) {
 
 $envFile = Get-Content ".env"
 $hasGeminiKey = $envFile | Where-Object { $_ -match "^GEMINI_API_KEY=" -and $_ -notmatch "^GEMINI_API_KEY=$" -and $_ -notmatch "replace-with-your-gemini-api-key" }
+$hasViteGeminiKey = $envFile | Where-Object { $_ -match "^VITE_GEMINI_API_KEY=" -and $_ -notmatch "^VITE_GEMINI_API_KEY=$" }
 
-if (-not $hasGeminiKey) {
-    Write-Host "GEMINI_API_KEY is missing in .env." -ForegroundColor Yellow
+if (-not $hasGeminiKey -and -not $hasViteGeminiKey) {
+    Write-Host "GEMINI_API_KEY or VITE_GEMINI_API_KEY is missing in .env." -ForegroundColor Yellow
     exit 1
 }
 

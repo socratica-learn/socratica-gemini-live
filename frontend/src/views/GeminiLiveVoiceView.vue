@@ -84,6 +84,35 @@
             <strong>{{ tutorMode }}</strong>
           </div>
         </div>
+
+        <div class="script-note fallback-panel">
+          <span class="status-label">Input fallback</span>
+          <p v-if="voiceInputBlocked" class="helper-text">
+            Voice transcript input is blocked by this browser. Type one sentence below and Gemini
+            will still answer out loud.
+          </p>
+          <p v-else class="helper-text">
+            If browser speech recognition does not work, you can type here and keep the live audio
+            demo moving.
+          </p>
+
+          <textarea
+            v-model="manualUserInput"
+            class="topic-input fallback-input"
+            rows="3"
+            :disabled="!isConnected"
+            placeholder="Type a question or answer for the tutor..."
+          />
+
+          <button
+            class="secondary-button fallback-send"
+            type="button"
+            :disabled="!isConnected || !manualUserInput.trim()"
+            @click="submitManualUserInput"
+          >
+            Send To Tutor
+          </button>
+        </div>
       </article>
 
       <article class="panel">
@@ -206,6 +235,42 @@ interface TutorPreset {
   demoSteps: string[]
 }
 
+interface SpeechRecognitionAlternativeLike {
+  transcript: string
+}
+
+interface SpeechRecognitionResultLike {
+  isFinal: boolean
+  length: number
+  [index: number]: SpeechRecognitionAlternativeLike
+}
+
+interface SpeechRecognitionEventLike extends Event {
+  resultIndex: number
+  results: {
+    length: number
+    [index: number]: SpeechRecognitionResultLike
+  }
+}
+
+interface SpeechRecognitionLike extends EventTarget {
+  continuous: boolean
+  interimResults: boolean
+  lang: string
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null
+  onerror: ((event: Event & { error?: string }) => void) | null
+  onend: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognitionLike
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike
+  }
+}
+
 const tutorPresets: TutorPreset[] = [
   {
     id: 'exam-oral',
@@ -272,6 +337,8 @@ const eventLog = ref<string[]>([
   'Pick a tutor preset, click "Start Live Voice", allow microphone access, and begin speaking.',
 ])
 const savedSessions = ref<SavedTutorSession[]>([])
+const manualUserInput = ref('')
+const voiceInputBlocked = ref(false)
 
 const selectedPresetId = ref(tutorPresets[0].id)
 const sessionTitle = ref(tutorPresets[0].title)
@@ -288,6 +355,20 @@ let processorNode: ScriptProcessorNode | null = null
 let sinkNode: GainNode | null = null
 let playbackCursor = 0
 let activePlaybackNodes: AudioBufferSourceNode[] = []
+let hasSeenServerMessage = false
+let serverMessageCount = 0
+let rawSocketMessageCount = 0
+let rawSocketListener: ((event: MessageEvent) => void) | null = null
+let speechActivityStarted = false
+let silenceChunkCount = 0
+let capturedSpeechChunks: ArrayBuffer[] = []
+let speechRecognition: SpeechRecognitionLike | null = null
+let speechRecognitionActive = false
+let speechRecognitionEnabled = false
+const isTranscribing = ref(false)
+
+const SPEECH_LEVEL_THRESHOLD = 0.02
+const SILENCE_CHUNKS_BEFORE_END = 4
 
 const activePreset = computed(
   () => tutorPresets.find((preset) => preset.id === selectedPresetId.value) ?? tutorPresets[0]
@@ -326,7 +407,7 @@ const applyPreset = () => {
 
 const addEvent = (message: string) => {
   const timestamp = new Date().toLocaleTimeString()
-  eventLog.value = [`${timestamp} - ${message}`, ...eventLog.value].slice(0, 10)
+  eventLog.value = [`${timestamp} - ${message}`, ...eventLog.value].slice(0, 20)
 }
 
 const addTranscriptEntry = (speaker: TranscriptSpeaker, text: string) => {
@@ -343,10 +424,77 @@ const addTranscriptEntry = (speaker: TranscriptSpeaker, text: string) => {
   transcriptEntries.value.push({ speaker, text: trimmed })
 }
 
+const sendRecognizedUserText = (text: string) => {
+  const trimmed = text.trim()
+  if (!trimmed || !session || connectionState.value !== 'connected') {
+    return
+  }
+
+  addTranscriptEntry('You', trimmed)
+  currentUserTranscript.value = ''
+  statusMessage.value = 'Sending your answer to Gemini...'
+  addEvent(`Recognized speech locally: "${trimmed}"`)
+  clearPlaybackQueue()
+
+  session.sendClientContent({
+    turns: [
+      {
+        role: 'user',
+        parts: [{ text: trimmed }],
+      },
+    ],
+    turnComplete: true,
+  })
+}
+
+const transcribeCapturedSpeech = async () => {
+  if (!capturedSpeechChunks.length || isTranscribing.value) {
+    capturedSpeechChunks = []
+    return
+  }
+
+  const audioBlob = createWavBlobFromPcmChunks(capturedSpeechChunks, 16000)
+  capturedSpeechChunks = []
+  isTranscribing.value = true
+  currentUserTranscript.value = 'Transcribing your speech...'
+  statusMessage.value = 'Transcribing your microphone input...'
+  addEvent('Uploading captured speech for backend transcription.')
+
+  try {
+    const transcript = await liveVoiceService.transcribeAudio(audioBlob)
+    currentUserTranscript.value = ''
+
+    if (!transcript.trim()) {
+      addEvent('No speech recognized from the captured audio.')
+      return
+    }
+
+    addEvent(`Backend transcription: "${transcript.trim()}"`)
+    sendRecognizedUserText(transcript)
+  } catch (error) {
+    console.error('Failed to transcribe captured speech:', error)
+    currentUserTranscript.value = ''
+    statusMessage.value = 'Could not transcribe your speech.'
+    addEvent('Backend transcription failed.')
+  } finally {
+    isTranscribing.value = false
+  }
+}
+
+const submitManualUserInput = () => {
+  if (!manualUserInput.value.trim()) {
+    return
+  }
+
+  sendRecognizedUserText(manualUserInput.value)
+  manualUserInput.value = ''
+}
+
 const clearTranscript = () => {
   transcriptEntries.value = []
   currentUserTranscript.value = ''
   currentModelTranscript.value = ''
+  manualUserInput.value = ''
   activeSessionId.value = undefined
 }
 
@@ -362,6 +510,52 @@ const clearPlaybackQueue = () => {
   activePlaybackNodes = []
   playbackCursor = audioContext ? audioContext.currentTime : 0
   isModelSpeaking.value = false
+}
+
+const ensureAudioContext = async () => {
+  if (!audioContext) {
+    audioContext = new AudioContext()
+  }
+
+  if (audioContext.state === 'suspended') {
+    await audioContext.resume()
+  }
+
+  return audioContext
+}
+
+const createWavBlobFromPcmChunks = (chunks: ArrayBuffer[], sampleRate: number): Blob => {
+  const totalPcmBytes = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
+  const wavBuffer = new ArrayBuffer(44 + totalPcmBytes)
+  const view = new DataView(wavBuffer)
+
+  const writeAscii = (offset: number, value: string) => {
+    for (let index = 0; index < value.length; index += 1) {
+      view.setUint8(offset + index, value.charCodeAt(index))
+    }
+  }
+
+  writeAscii(0, 'RIFF')
+  view.setUint32(4, 36 + totalPcmBytes, true)
+  writeAscii(8, 'WAVE')
+  writeAscii(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  writeAscii(36, 'data')
+  view.setUint32(40, totalPcmBytes, true)
+
+  let offset = 44
+  for (const chunk of chunks) {
+    new Uint8Array(wavBuffer, offset, chunk.byteLength).set(new Uint8Array(chunk))
+    offset += chunk.byteLength
+  }
+
+  return new Blob([wavBuffer], { type: 'audio/wav' })
 }
 
 const decodeBase64ToArrayBuffer = (base64: string): ArrayBuffer => {
@@ -388,27 +582,21 @@ const pcm16ToFloat32 = (buffer: ArrayBuffer): Float32Array => {
 }
 
 const enqueueAudioChunk = async (base64Audio: string) => {
-  if (!audioContext) {
-    return
-  }
-
-  if (audioContext.state === 'suspended') {
-    await audioContext.resume()
-  }
+  const playbackContext = await ensureAudioContext()
 
   const floatSamples = pcm16ToFloat32(decodeBase64ToArrayBuffer(base64Audio))
   if (!floatSamples.length) {
     return
   }
 
-  const buffer = audioContext.createBuffer(1, floatSamples.length, 24000)
+  const buffer = playbackContext.createBuffer(1, floatSamples.length, 24000)
   buffer.copyToChannel(floatSamples, 0)
 
-  const source = audioContext.createBufferSource()
+  const source = playbackContext.createBufferSource()
   source.buffer = buffer
-  source.connect(audioContext.destination)
+  source.connect(playbackContext.destination)
 
-  const now = audioContext.currentTime
+  const now = playbackContext.currentTime
   playbackCursor = Math.max(playbackCursor, now + 0.02)
   source.start(playbackCursor)
   playbackCursor += buffer.duration
@@ -474,44 +662,94 @@ const calculateLevel = (input: Float32Array): number => {
   return Math.sqrt(sum / input.length)
 }
 
-const handleServerMessage = async (message: LiveServerMessage) => {
+const normalizeServerMessage = (payload: unknown): LiveServerMessage | null => {
+  if (!payload) {
+    return null
+  }
+
+  if (typeof payload === 'string') {
+    try {
+      return JSON.parse(payload) as LiveServerMessage
+    } catch {
+      return null
+    }
+  }
+
+  if (payload instanceof MessageEvent) {
+    return normalizeServerMessage(payload.data)
+  }
+
+  if (
+    typeof payload === 'object' &&
+    payload !== null &&
+    'data' in payload &&
+    !('serverContent' in payload) &&
+    !('setupComplete' in payload)
+  ) {
+    return normalizeServerMessage((payload as { data: unknown }).data)
+  }
+
+  return payload as LiveServerMessage
+}
+
+const handleServerMessage = async (payload: unknown) => {
+  const message = normalizeServerMessage(payload)
+  if (!message) {
+    addEvent('Received an unreadable Gemini server payload.')
+    return
+  }
+
+  serverMessageCount += 1
+  if (serverMessageCount <= 5) {
+    addEvent(`Gemini message #${serverMessageCount}: ${Object.keys(message).join(', ') || 'none'}`)
+  }
+
+  if (!hasSeenServerMessage) {
+    hasSeenServerMessage = true
+    addEvent('Received first Gemini server message.')
+    addEvent(`First Gemini message keys: ${Object.keys(message).join(', ') || 'none'}`)
+  }
+
   if (message.setupComplete) {
     addEvent('Gemini Live socket is ready.')
   }
 
+  const inputTranscription = message.serverContent?.inputTranscription ?? message.inputTranscription
+  const outputTranscription = message.serverContent?.outputTranscription ?? message.outputTranscription
   const serverContent = message.serverContent
-  if (!serverContent) {
-    return
-  }
 
-  if (serverContent.interrupted) {
+  if (serverContent?.interrupted) {
     clearPlaybackQueue()
     addEvent('Model response interrupted by new user activity.')
   }
 
-  if (serverContent.inputTranscription?.text) {
-    currentUserTranscript.value = serverContent.inputTranscription.text
+  if (inputTranscription?.text) {
+    currentUserTranscript.value = inputTranscription.text
   }
 
-  if (serverContent.inputTranscription?.finished && currentUserTranscript.value.trim()) {
+  if (inputTranscription?.finished && currentUserTranscript.value.trim()) {
     addTranscriptEntry('You', currentUserTranscript.value)
     currentUserTranscript.value = ''
   }
 
-  if (serverContent.outputTranscription?.text) {
-    currentModelTranscript.value = serverContent.outputTranscription.text
+  if (outputTranscription?.text) {
+    currentModelTranscript.value = outputTranscription.text
   }
 
-  if (serverContent.outputTranscription?.finished && currentModelTranscript.value.trim()) {
+  if (outputTranscription?.finished && currentModelTranscript.value.trim()) {
     addTranscriptEntry('Socratica', currentModelTranscript.value)
     currentModelTranscript.value = ''
   }
 
-  const parts = serverContent.modelTurn?.parts ?? []
+  const parts = serverContent?.modelTurn?.parts ?? []
   for (const part of parts) {
     if (part.inlineData?.data) {
       await enqueueAudioChunk(part.inlineData.data)
     }
+  }
+
+  if (!serverContent) {
+    return
   }
 
   if (serverContent.waitingForInput) {
@@ -557,19 +795,36 @@ const startMicrophone = async () => {
     const downsampled = downsampleTo16k(inputSamples, audioContext.sampleRate)
     const pcm16Buffer = float32ToPcm16(downsampled)
 
-    if (level > 0.02) {
+    if (level > SPEECH_LEVEL_THRESHOLD) {
       if (!isListening.value) {
         addEvent('User speech detected. Clearing pending model audio.')
       }
+
+      if (!speechActivityStarted) {
+        capturedSpeechChunks = []
+      }
+      speechActivityStarted = true
+      silenceChunkCount = 0
       isListening.value = true
       clearPlaybackQueue()
-    } else {
-      isListening.value = false
+      capturedSpeechChunks.push(pcm16Buffer)
+      return
     }
 
-    session.sendRealtimeInput({
-      audio: new Blob([pcm16Buffer], { type: 'audio/pcm;rate=16000' }),
-    })
+    if (speechActivityStarted) {
+      silenceChunkCount += 1
+      capturedSpeechChunks.push(pcm16Buffer)
+
+      if (silenceChunkCount >= SILENCE_CHUNKS_BEFORE_END) {
+        speechActivityStarted = false
+        silenceChunkCount = 0
+        isListening.value = false
+        void transcribeCapturedSpeech()
+      }
+      return
+    }
+
+    isListening.value = false
   }
 }
 
@@ -602,8 +857,114 @@ const stopAudioPipeline = async () => {
     audioContext = null
   }
 
+  capturedSpeechChunks = []
+  speechActivityStarted = false
+  silenceChunkCount = 0
   isListening.value = false
   isModelSpeaking.value = false
+}
+
+const detachRawSocketListener = () => {
+  const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
+  if (rawSocket && rawSocketListener) {
+    rawSocket.removeEventListener('message', rawSocketListener)
+  }
+
+  rawSocketListener = null
+}
+
+const stopSpeechRecognition = () => {
+  speechRecognitionEnabled = false
+  speechRecognitionActive = false
+  voiceInputBlocked.value = false
+  isListening.value = false
+  currentUserTranscript.value = ''
+  if (speechRecognition) {
+    speechRecognition.stop()
+  }
+}
+
+const startSpeechRecognition = (): boolean => {
+  const RecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition
+  if (!RecognitionCtor) {
+    voiceInputBlocked.value = true
+    addEvent('Browser speech recognition is not supported here.')
+    return false
+  }
+
+  if (!speechRecognition) {
+    speechRecognition = new RecognitionCtor()
+    speechRecognition.continuous = true
+    speechRecognition.interimResults = true
+    speechRecognition.lang = 'en-US'
+
+    speechRecognition.onresult = (event) => {
+      let interimTranscript = ''
+      const finalSegments: string[] = []
+
+      for (let index = event.resultIndex; index < event.results.length; index += 1) {
+        const result = event.results[index]
+        const transcript = result[0]?.transcript?.trim()
+        if (!transcript) {
+          continue
+        }
+
+        if (result.isFinal) {
+          finalSegments.push(transcript)
+        } else {
+          interimTranscript += `${transcript} `
+        }
+      }
+
+      currentUserTranscript.value = interimTranscript.trim()
+      isListening.value = interimTranscript.trim().length > 0
+
+      if (finalSegments.length) {
+        isListening.value = false
+        sendRecognizedUserText(finalSegments.join(' '))
+      }
+    }
+
+    speechRecognition.onerror = (event) => {
+      addEvent(`Browser speech recognition error${event.error ? `: ${event.error}` : '.'}`)
+      if (event.error === 'service-not-allowed' || event.error === 'not-allowed') {
+        speechRecognitionEnabled = false
+        voiceInputBlocked.value = true
+        statusMessage.value = 'This browser blocked local speech recognition. Try Chrome or Edge for voice transcript input.'
+      }
+    }
+
+    speechRecognition.onend = () => {
+      speechRecognitionActive = false
+      isListening.value = false
+      if (speechRecognitionEnabled && connectionState.value === 'connected') {
+        try {
+          speechRecognition?.start()
+          speechRecognitionActive = true
+        } catch {
+          // Ignore browser restart timing issues.
+        }
+      }
+    }
+  }
+
+  speechRecognitionEnabled = true
+  voiceInputBlocked.value = false
+  if (!speechRecognitionActive) {
+    try {
+      speechRecognition.start()
+      speechRecognitionActive = true
+      addEvent('Browser speech recognition started.')
+    } catch (error) {
+      speechRecognitionEnabled = false
+      addEvent(
+        `Browser speech recognition could not start${error instanceof Error ? `: ${error.message}` : '.'}`
+      )
+      return false
+    }
+  }
+
+  return true
 }
 
 const buildTutorPrompt = () => {
@@ -696,6 +1057,9 @@ const startLiveSession = async () => {
   liveModel.value = 'Resolving model...'
 
   try {
+    hasSeenServerMessage = false
+    serverMessageCount = 0
+    rawSocketMessageCount = 0
     const tokenResponse = await liveVoiceService.createSessionToken()
     liveModel.value = tokenResponse.model
     statusMessage.value = 'Opening Live API socket...'
@@ -703,6 +1067,9 @@ const startLiveSession = async () => {
     const ai = new GoogleGenAI({
       apiKey: tokenResponse.token,
       apiVersion: 'v1alpha',
+      httpOptions: {
+        apiVersion: 'v1alpha',
+      },
     })
 
     session = await ai.live.connect({
@@ -727,26 +1094,60 @@ const startLiveSession = async () => {
           console.error('Gemini Live error:', event)
           connectionState.value = 'error'
           statusMessage.value = 'Gemini Live reported an error.'
-          addEvent('Gemini Live error received from the browser client.')
+          addEvent(
+            `Gemini Live error received from the browser client${'message' in event && typeof event.message === 'string' && event.message ? `: ${event.message}` : '.'}`
+          )
         },
-        onclose: () => {
+        onclose: (event) => {
+          addEvent(`Gemini Live session closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`)
           if (connectionState.value === 'connected') {
             connectionState.value = 'idle'
             statusMessage.value = 'Session closed.'
-            addEvent('Gemini Live session closed.')
           }
         },
       },
     })
 
+    const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
+    if (rawSocket?.addEventListener) {
+      rawSocketListener = (event: MessageEvent) => {
+        rawSocketMessageCount += 1
+        if (rawSocketMessageCount <= 5) {
+          if (typeof event.data === 'string') {
+            addEvent(`Raw socket message #${rawSocketMessageCount}: ${event.data.slice(0, 120)}`)
+          } else {
+            addEvent(`Raw socket message #${rawSocketMessageCount}: ${Object.prototype.toString.call(event.data)}`)
+          }
+        }
+      }
+      rawSocket.addEventListener('message', rawSocketListener)
+      rawSocket.addEventListener('close', (event) => {
+        addEvent(`Raw socket closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`)
+      })
+      rawSocket.addEventListener('error', () => {
+        addEvent('Raw socket reported an error.')
+      })
+    }
+
+    voiceInputBlocked.value = false
     await startMicrophone()
+    addEvent('Microphone streaming started.')
 
     connectionState.value = 'connected'
     statusMessage.value = 'Live session ready. Start talking.'
-    addEvent('Microphone streaming started.')
 
+    addEvent('Sending initial tutor prompt to Gemini.')
     session.sendClientContent({
-      turns: `The student wants to practice this topic: ${studyTopic.value.trim()}. Ask them to begin in their own words, then challenge them using the ${tutorMode.value} style. Their goal is: ${learningGoal.value.trim()}.`,
+      turns: [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `The student wants to practice this topic: ${studyTopic.value.trim()}. Ask them to begin in their own words, then challenge them using the ${tutorMode.value} style. Their goal is: ${learningGoal.value.trim()}.`,
+            },
+          ],
+        },
+      ],
       turnComplete: true,
     })
   } catch (error) {
@@ -754,8 +1155,12 @@ const startLiveSession = async () => {
     connectionState.value = 'error'
     statusMessage.value =
       error instanceof Error ? error.message : 'Failed to start the live voice session.'
-    addEvent('Failed to start the live voice session.')
+    addEvent(
+      `Failed to start the live voice session${error instanceof Error ? `: ${error.message}` : '.'}`
+    )
+    stopSpeechRecognition()
     await stopAudioPipeline()
+    detachRawSocketListener()
     if (session) {
       session.close()
       session = null
@@ -765,11 +1170,12 @@ const startLiveSession = async () => {
 
 const stopLiveSession = async () => {
   if (session) {
-    session.sendRealtimeInput({ audioStreamEnd: true })
+    detachRawSocketListener()
     session.close()
     session = null
   }
 
+  stopSpeechRecognition()
   await stopAudioPipeline()
   connectionState.value = 'idle'
   statusMessage.value = 'Session stopped.'
