@@ -126,6 +126,22 @@ npm run dev
 docker-compose up -d
 ```
 
+### Live Voice Tutor Setup
+1. Copy `.env.example` to `.env`
+2. Fill in `GEMINI_API_KEY`
+3. Start the local stack:
+```bash
+pwsh ./scripts/start-local-live-tutor.ps1
+```
+4. Start the frontend:
+```bash
+cd frontend
+npm run dev
+```
+5. Open `http://localhost:5173/live-voice`
+
+The live tutor page uses Gemini Live with short-lived backend-minted session tokens and saves tutor session history to MongoDB.
+
 ## 📋 Development Workflow
 
 1. **Create an issue** in GitLab for any new feature or bug

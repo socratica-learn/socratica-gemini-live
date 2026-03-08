@@ -139,14 +139,15 @@ public class AiService {
     }
 
     private String generateContent(String prompt) {
-        if (geminiApiKey == null || geminiApiKey.isBlank()) {
+        String apiKey = resolveGeminiApiKey();
+        if (apiKey.isBlank()) {
             throw new RuntimeException("Gemini API key not configured");
         }
 
         String url = String.format(
             "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
             geminiModel,
-            geminiApiKey
+            apiKey
         );
 
         ObjectNode body = objectMapper.createObjectNode();
@@ -175,6 +176,15 @@ public class AiService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to call Gemini API", e);
         }
+    }
+
+    private String resolveGeminiApiKey() {
+        if (geminiApiKey != null && !geminiApiKey.isBlank()) {
+            return geminiApiKey;
+        }
+
+        String viteGeminiApiKey = System.getenv("VITE_GEMINI_API_KEY");
+        return viteGeminiApiKey == null ? "" : viteGeminiApiKey.trim();
     }
 
     private String nullToDefault(String value, String defaultValue) {

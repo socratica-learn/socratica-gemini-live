@@ -54,6 +54,11 @@ const router = createRouter({
       path: '/reset-password',
       name: 'reset-password',
       component: () => import('../views/ResetPasswordView.vue')
+    },
+    {
+      path: '/live-voice',
+      name: 'live-voice',
+      component: () => import('../views/GeminiLiveVoiceView.vue')
     }
   ]
 })

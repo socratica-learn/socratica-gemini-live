@@ -48,6 +48,7 @@
             <p class="subtitle">Evaluate your <span class="highlight-neon">understanding</span>, prepare for <span class="highlight-neon">presentations</span>, ace&nbsp;<span class="highlight-neon">interviews</span>,<br>and transform how you learn&nbsp;- all through intelligent conversation.</p>
               <div class="cta-group">
                 <a href="#get-started" class="cta primary">Get Started</a>
+                <button type="button" class="cta primary cta-live" @click="goToLiveVoice">Try Live Voice</button>
               <a ref="secondaryButton" href="#discover" class="cta secondary" @mouseenter="handleButtonEnter" @mousemove="handleButtonMove" @mouseleave="handleButtonLeave">See How It Works <span class="arrow">→</span></a>
             </div>
           </div>
@@ -304,6 +305,10 @@ const toggleAutoPlay = () => {
 
 const goToLogin = () => {
   router.push('/login')
+}
+
+const goToLiveVoice = () => {
+  router.push('/live-voice')
 }
 
 // Touch handlers
@@ -1154,6 +1159,10 @@ onUnmounted(() => {
 .cta.primary:hover {
   transform: translateY(-1px);
   box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+}
+
+.cta-live {
+  cursor: pointer;
 }
 
 .cta.secondary {

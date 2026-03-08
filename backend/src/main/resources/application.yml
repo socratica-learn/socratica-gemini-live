@@ -49,8 +49,9 @@ socratica:
     api-key: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-4}
   gemini:
-    api-key: ${GEMINI_API_KEY:}
-    model: ${GEMINI_MODEL:gemini-1.5-flash}
+    api-key: ${GEMINI_API_KEY:${VITE_GEMINI_API_KEY:}}
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
+    live-model: ${GEMINI_LIVE_MODEL:gemini-2.5-flash-native-audio-preview-12-2025}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
   oauth:
