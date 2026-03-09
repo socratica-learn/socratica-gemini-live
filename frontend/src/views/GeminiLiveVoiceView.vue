@@ -61,6 +61,21 @@
           placeholder="Example: Explain photosynthesis for an oral exam and challenge me whenever I sound vague."
         />
 
+        <div class="interrupt-toggle-row">
+          <label class="field-label">Socratica may interrupt</label>
+          <button
+            type="button"
+            class="toggle-button"
+            :class="{ active: allowInterruption }"
+            @click="allowInterruption = !allowInterruption"
+          >
+            {{ allowInterruption ? 'On' : 'Off' }}
+          </button>
+          <span class="helper-text interrupt-helper">
+            {{ allowInterruption ? 'Socratica can jump in when unclear or to probe deeper.' : 'Socratica waits for you to finish before responding.' }}
+          </span>
+        </div>
+
         <div class="status-row">
           <span class="status-chip" :class="statusClass">{{ connectionLabel }}</span>
           <span class="meta-text">{{ statusMessage }}</span>
@@ -368,6 +383,7 @@ const sessionTitle = ref(tutorPresets[0].title)
 const studyTopic = ref(tutorPresets[0].topic)
 const learningGoal = ref(tutorPresets[0].learningGoal)
 const tutorMode = ref(tutorPresets[0].tutorMode)
+const allowInterruption = ref(false)
 const activeSessionId = ref<string | undefined>(undefined)
 
 let session: Session | null = null
@@ -405,8 +421,14 @@ const isTranscribing = ref(false)
 const SPEECH_LEVEL_THRESHOLD = 0.02
 const INTERRUPTION_LEVEL_THRESHOLD = 0.03
 const INTERRUPTION_CHUNKS_BEFORE_HANDOFF = 2
-const SILENCE_CHUNKS_BEFORE_END = 10
-const SPEECH_RECOGNITION_FINALIZE_DELAY_MS = 900
+const SILENCE_CHUNKS_BEFORE_END_OFF = 10
+const SILENCE_CHUNKS_BEFORE_END_ON = 5
+const SPEECH_RECOGNITION_FINALIZE_DELAY_MS_OFF = 900
+const SPEECH_RECOGNITION_FINALIZE_DELAY_MS_ON = 500
+
+const getSilenceChunksBeforeEnd = () => (allowInterruption.value ? SILENCE_CHUNKS_BEFORE_END_ON : SILENCE_CHUNKS_BEFORE_END_OFF)
+const getSpeechRecognitionFinalizeDelayMs = () =>
+  allowInterruption.value ? SPEECH_RECOGNITION_FINALIZE_DELAY_MS_ON : SPEECH_RECOGNITION_FINALIZE_DELAY_MS_OFF
 const LIVE_USER_PREVIEW_DELAY_MS = 1200
 const LIVE_USER_PREVIEW_MIN_CHUNKS = 3
 
@@ -825,7 +847,7 @@ const scheduleSpeechRecognitionFinalize = () => {
   clearSpeechRecognitionFinalizeTimer()
   speechRecognitionFinalizeTimer = window.setTimeout(() => {
     flushSpeechRecognitionUtterance()
-  }, SPEECH_RECOGNITION_FINALIZE_DELAY_MS)
+  }, getSpeechRecognitionFinalizeDelayMs())
 }
 
 const transcribeLiveUserPreview = async (sessionId: number) => {
@@ -1123,6 +1145,7 @@ const enqueueAudioChunk = async (base64Audio: string) => {
     if (!activePlaybackNodes.length && audioContext) {
       playbackCursor = audioContext.currentTime
       isModelSpeaking.value = false
+      resumeSpeechRecognitionCapture()
       syncConversationPhase()
     }
   }
@@ -1367,7 +1390,7 @@ const startMicrophone = async () => {
       silenceChunkCount += 1
       capturedSpeechChunks.push(pcm16Buffer)
 
-      if (silenceChunkCount >= SILENCE_CHUNKS_BEFORE_END) {
+      if (silenceChunkCount >= getSilenceChunksBeforeEnd()) {
         speechActivityStarted = false
         silenceChunkCount = 0
         isListening.value = false
@@ -1564,7 +1587,7 @@ const startSpeechRecognition = (): boolean => {
 }
 
 const buildTutorPrompt = () => {
-  return [
+  const base = [
     'You are Socratica, a warm spoken Socratic tutor for a live hackathon demo.',
     `Tutor mode: ${tutorMode.value}.`,
     `Student topic: ${studyTopic.value.trim()}.`,
@@ -1575,7 +1598,17 @@ const buildTutorPrompt = () => {
     'If the student interrupts you, stop gracefully, acknowledge the interruption naturally, and continue from what they said next.',
     'Challenge vague reasoning politely whenever they skip a causal link or make an unsupported claim.',
     'Keep most spoken responses to one to three concise sentences unless the student explicitly asks for more detail.',
-  ].join(' ')
+  ]
+  if (allowInterruption.value) {
+    base.push(
+      'You may interrupt the student after brief pauses when something is unclear or when probing deeper would help—do not wait for long silence before responding.'
+    )
+  } else {
+    base.push(
+      'Wait for the student to finish their full thought before responding. Do not interrupt or jump in during brief pauses.'
+    )
+  }
+  return base.join(' ')
 }
 
 const loadSavedSessions = async () => {
@@ -1972,6 +2005,46 @@ h2 {
 .topic-input {
   resize: vertical;
   min-height: 8rem;
+}
+
+.interrupt-toggle-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.interrupt-toggle-row .field-label {
+  margin: 0;
+}
+
+.toggle-button {
+  padding: 0.4rem 1rem;
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  border: 1px solid rgba(245, 241, 232, 0.2);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f5f1e8;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.toggle-button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.toggle-button.active {
+  background: rgba(105, 219, 124, 0.2);
+  border-color: rgba(105, 219, 124, 0.4);
+  color: #8ce99a;
+}
+
+.interrupt-helper {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(245, 241, 232, 0.65);
 }
 
 .status-row {
