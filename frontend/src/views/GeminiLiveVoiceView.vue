@@ -3,10 +3,10 @@
     <header class="hero-card">
       <div>
         <p class="eyebrow">Gemini Live Tutor</p>
-        <h1>Build a judge-ready Socratic voice tutor.</h1>
+        <h1>Socratic Voice Tutor</h1>
         <p class="hero-copy">
-          Pick a tutoring mode, follow a demo script, speak naturally, and save each session so
-          your hackathon demo shows both live interruption and persistent study history.
+          Pick a tutoring mode, speak naturally, and get real-time Socratic feedback. Your full
+          conversation is transcribed live so you can review everything that was said.
         </p>
       </div>
 
@@ -35,7 +35,50 @@
       </div>
     </header>
 
+    <!-- Live conversation state bar — visible when connected -->
+    <div v-if="isConnected" class="conversation-bar">
+      <div class="conversation-state" :class="conversationPhase">
+        <div class="state-icon">
+          <span v-if="conversationPhase === 'speaking'" class="wave-icon" aria-hidden="true">
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+            <span class="wave-bar"></span>
+          </span>
+          <span v-else-if="conversationPhase === 'listening'" class="pulse-icon" aria-hidden="true">
+            <span class="pulse-ring"></span>
+            <span class="mic-dot"></span>
+          </span>
+          <span v-else-if="conversationPhase === 'processing'" class="dots-icon" aria-hidden="true">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </span>
+          <span v-else class="idle-dot" aria-hidden="true"></span>
+        </div>
+        <div class="state-text">
+          <strong>{{ conversationPhaseLabel }}</strong>
+          <span class="state-detail">{{ statusMessage }}</span>
+        </div>
+      </div>
+
+      <button
+        class="interrupt-toggle-button"
+        :class="{ 'toggle-on': interruptingModeEnabled }"
+        type="button"
+        :title="interruptingModeEnabled ? 'Socratica may interrupt you. Click to disable.' : 'Socratica waits for you to finish. Click to enable interruptions.'"
+        @click="toggleInterruptingMode"
+      >
+        <span class="toggle-track">
+          <span class="toggle-thumb"></span>
+        </span>
+        <span class="toggle-label">Interrupting: <strong>{{ interruptingModeEnabled ? 'ON' : 'OFF' }}</strong></span>
+      </button>
+    </div>
+
     <section class="panel-grid">
+      <!-- Left: Session setup -->
       <article class="panel setup-panel">
         <h2>Session Setup</h2>
 
@@ -58,22 +101,22 @@
           v-model="studyTopic"
           class="topic-input"
           rows="5"
-          placeholder="Example: Explain photosynthesis for an oral exam and challenge me whenever I sound vague."
+          placeholder="Example: Explain photosynthesis for an oral exam and challenge me whenever I skip a causal step."
         />
 
         <div class="status-row">
           <span class="status-chip" :class="statusClass">{{ connectionLabel }}</span>
-          <span class="meta-text">{{ statusMessage }}</span>
+          <span class="meta-text">{{ !isConnected ? statusMessage : '' }}</span>
         </div>
 
         <div class="status-list">
           <div class="status-item">
             <span class="status-label">Listening</span>
-            <strong>{{ isListening ? 'Yes' : 'No' }}</strong>
+            <strong :class="{ 'active-indicator': isListening }">{{ isListening ? 'Yes' : 'No' }}</strong>
           </div>
           <div class="status-item">
-            <span class="status-label">Model speaking</span>
-            <strong>{{ isModelSpeaking ? 'Yes' : 'No' }}</strong>
+            <span class="status-label">Socratica speaking</span>
+            <strong :class="{ 'active-indicator': isModelSpeaking }">{{ isModelSpeaking ? 'Yes' : 'No' }}</strong>
           </div>
           <div class="status-item">
             <span class="status-label">Live model</span>
@@ -83,17 +126,38 @@
             <span class="status-label">Tutor mode</span>
             <strong>{{ tutorMode }}</strong>
           </div>
+          <div class="status-item">
+            <span class="status-label">Interrupting mode</span>
+            <button
+              class="inline-toggle"
+              :class="{ 'toggle-on': interruptingModeEnabled }"
+              type="button"
+              @click="toggleInterruptingMode"
+            >
+              {{ interruptingModeEnabled ? 'ON' : 'OFF' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="interrupt-info script-note">
+          <span class="status-label">About interrupting mode</span>
+          <p v-if="interruptingModeEnabled" class="helper-text">
+            <strong>ON:</strong> Socratica may gently interrupt you with follow-up questions or
+            corrections. You can always interrupt Socratica at any time.
+          </p>
+          <p v-else class="helper-text">
+            <strong>OFF:</strong> Socratica will wait for you to finish speaking before responding.
+            Fully user-led. You can still always interrupt Socratica.
+          </p>
         </div>
 
         <div class="script-note fallback-panel">
-          <span class="status-label">Input fallback</span>
+          <span class="status-label">Text input fallback</span>
           <p v-if="voiceInputBlocked" class="helper-text">
-            Voice transcript input is blocked by this browser. Type one sentence below and Gemini
-            will still answer out loud.
+            Voice input is blocked by this browser. Type below and Socratica will still answer out loud.
           </p>
           <p v-else class="helper-text">
-            If browser speech recognition does not work, you can type here and keep the live audio
-            demo moving.
+            If speech recognition does not work, type here to keep the session going.
           </p>
 
           <textarea
@@ -115,86 +179,95 @@
         </div>
       </article>
 
-      <article class="panel">
-        <h2>Judge Demo Script</h2>
-        <ol class="demo-steps">
-          <li v-for="(step, index) in activeDemoSteps" :key="`${step}-${index}`">
-            {{ step }}
-          </li>
-        </ol>
-
-        <div class="script-note">
-          <span class="status-label">Narration hook</span>
-          <p>{{ activePreset.demoNarration }}</p>
-        </div>
-      </article>
-
+      <!-- Center: Live conversation transcript -->
       <article class="panel transcript-panel">
         <div class="panel-header">
-          <h2>Transcript</h2>
-          <button class="ghost-button" type="button" @click="clearTranscript">Clear</button>
+          <h2>Conversation</h2>
+          <div class="transcript-actions">
+            <span v-if="transcriptEntries.length" class="message-count">
+              {{ transcriptEntries.length }} {{ transcriptEntries.length === 1 ? 'message' : 'messages' }}
+            </span>
+            <button class="ghost-button" type="button" @click="clearTranscript">Clear</button>
+          </div>
         </div>
 
-        <div class="transcript-stream">
+        <div ref="transcriptStreamRef" class="transcript-stream">
           <p
-            v-if="!transcriptEntries.length && !currentUserTranscript && !currentModelTranscript"
+            v-if="!transcriptEntries.length"
             class="empty-state"
           >
-            The transcript will appear here once the session starts.
+            The conversation will appear here once the session starts.
           </p>
 
           <div
-            v-for="(entry, index) in transcriptEntries"
-            :key="`${entry.speaker}-${index}`"
+            v-for="entry in transcriptEntries"
+            :key="entry.id"
             class="transcript-entry"
-            :class="entry.speaker === 'You' ? 'user-entry' : 'model-entry'"
+            :class="[
+              entry.speaker === 'You' ? 'user-entry' : 'model-entry',
+              { 'pending-entry': entry.pending },
+            ]"
           >
-            <span class="speaker">{{ entry.speaker }}</span>
+            <div class="entry-header">
+              <span class="speaker">{{ entry.speaker }}</span>
+              <span v-if="!entry.pending && entry.time" class="entry-time">{{ entry.time }}</span>
+              <span v-else-if="entry.pending" class="entry-time pending-label">
+                {{ entry.speaker === 'You' && isTranscribing ? 'transcribing…' : 'speaking…' }}
+              </span>
+            </div>
             <p>{{ entry.text }}</p>
           </div>
-
-          <div v-if="currentUserTranscript" class="transcript-entry user-entry pending-entry">
-            <span class="speaker">You</span>
-            <p>{{ currentUserTranscript }}</p>
-          </div>
-
-          <div v-if="currentModelTranscript" class="transcript-entry model-entry pending-entry">
-            <span class="speaker">Socratica</span>
-            <p>{{ currentModelTranscript }}</p>
-          </div>
         </div>
       </article>
 
-      <article class="panel">
-        <h2>Saved Sessions</h2>
-        <div class="saved-session-list">
-          <p v-if="!savedSessions.length" class="empty-state">
-            Save a session to build a reusable demo history.
-          </p>
+      <!-- Right: Demo script + saved sessions -->
+      <div class="side-panels">
+        <article class="panel">
+          <h2>Demo Script</h2>
+          <ol class="demo-steps">
+            <li v-for="(step, index) in activeDemoSteps" :key="`${step}-${index}`">
+              {{ step }}
+            </li>
+          </ol>
 
-          <button
-            v-for="savedSession in savedSessions"
-            :key="savedSession.id"
-            type="button"
-            class="saved-session-card"
-            @click="loadSavedSession(savedSession.id)"
-          >
-            <strong>{{ savedSession.title }}</strong>
-            <span>{{ savedSession.tutorMode || 'General tutor' }}</span>
-            <span>{{ formatDate(savedSession.updatedAt) }}</span>
-          </button>
-        </div>
-      </article>
+          <div class="script-note">
+            <span class="status-label">Narration hook</span>
+            <p>{{ activePreset.demoNarration }}</p>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>Saved Sessions</h2>
+          <div class="saved-session-list">
+            <p v-if="!savedSessions.length" class="empty-state">
+              Save a session to build a reusable demo history.
+            </p>
+
+            <button
+              v-for="savedSession in savedSessions"
+              :key="savedSession.id"
+              type="button"
+              class="saved-session-card"
+              @click="loadSavedSession(savedSession.id)"
+            >
+              <strong>{{ savedSession.title }}</strong>
+              <span>{{ savedSession.tutorMode || 'General tutor' }}</span>
+              <span>{{ formatDate(savedSession.updatedAt) }}</span>
+            </button>
+          </div>
+        </article>
+      </div>
     </section>
 
-    <section class="panel">
-      <h2>Live Events</h2>
+    <!-- Collapsible debug events -->
+    <details class="panel events-details">
+      <summary class="events-summary">Live Events <span class="event-count">({{ eventLog.length }})</span></summary>
       <ul class="event-list">
         <li v-for="(entry, index) in eventLog" :key="`${entry}-${index}`">
           {{ entry }}
         </li>
       </ul>
-    </section>
+    </details>
   </section>
 </template>
 
@@ -206,7 +279,7 @@ import {
   type LiveServerMessage,
   type Session,
 } from '@google/genai'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import {
@@ -218,10 +291,14 @@ import {
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error'
 type TranscriptSpeaker = 'You' | 'Socratica'
+type ConversationPhase = 'idle' | 'speaking' | 'listening' | 'processing' | 'waiting'
 
 interface TranscriptEntry {
+  id: string
   speaker: TranscriptSpeaker
   text: string
+  time: string
+  pending: boolean
 }
 
 interface TutorPreset {
@@ -312,7 +389,7 @@ const tutorPresets: TutorPreset[] = [
     learningGoal: 'Practice high-stakes spoken answers with live pushback.',
     tutorMode: 'Behavioral interview',
     demoNarration:
-      'This mode turns the tutor into an interviewer who actively tests the student’s evidence, clarity, and structure.',
+      'This mode turns the tutor into an interviewer who actively tests the student\'s evidence, clarity, and structure.',
     demoSteps: [
       'Introduce the interview scenario and begin answering.',
       'Let the AI interrupt when your answer lacks specifics.',
@@ -324,15 +401,19 @@ const tutorPresets: TutorPreset[] = [
 
 const router = useRouter()
 
+// Connection & session state
 const connectionState = ref<ConnectionState>('idle')
 const statusMessage = ref('Ready to start a live voice tutoring session.')
 const liveModel = ref('Waiting for backend token...')
+
+// Voice activity state
 const isListening = ref(false)
 const isModelSpeaking = ref(false)
+const isTranscribing = ref(false)
+
+// Session management state
 const isSaving = ref(false)
 const transcriptEntries = ref<TranscriptEntry[]>([])
-const currentUserTranscript = ref('')
-const currentModelTranscript = ref('')
 const eventLog = ref<string[]>([
   'Pick a tutor preset, click "Start Live Voice", allow microphone access, and begin speaking.',
 ])
@@ -340,6 +421,11 @@ const savedSessions = ref<SavedTutorSession[]>([])
 const manualUserInput = ref('')
 const voiceInputBlocked = ref(false)
 
+// Interrupting mode: controls whether Socratica may interrupt the user.
+// The user may always interrupt Socratica regardless of this setting.
+const interruptingModeEnabled = ref(true)
+
+// Preset / session config
 const selectedPresetId = ref(tutorPresets[0].id)
 const sessionTitle = ref(tutorPresets[0].title)
 const studyTopic = ref(tutorPresets[0].topic)
@@ -347,6 +433,10 @@ const learningGoal = ref(tutorPresets[0].learningGoal)
 const tutorMode = ref(tutorPresets[0].tutorMode)
 const activeSessionId = ref<string | undefined>(undefined)
 
+// Transcript auto-scroll
+const transcriptStreamRef = ref<HTMLElement | null>(null)
+
+// Non-reactive audio/session handles
 let session: Session | null = null
 let mediaStream: MediaStream | null = null
 let audioContext: AudioContext | null = null
@@ -365,10 +455,29 @@ let capturedSpeechChunks: ArrayBuffer[] = []
 let speechRecognition: SpeechRecognitionLike | null = null
 let speechRecognitionActive = false
 let speechRecognitionEnabled = false
-const isTranscribing = ref(false)
+let nextEntryId = 0
+let consecutiveSpeechChunks = 0  // how many consecutive above-threshold chunks we've seen
+// OFF mode only: accumulates isFinal speech recognition segments until the
+// ScriptProcessor detects a long silence, then sends the full accumulated text.
+let accumulatedRecognitionText = ''
 
+// ─── Audio constants ──────────────────────────────────────────────────────────
+// Each ScriptProcessor chunk is 4096 samples.
+// At 48 kHz ≈ 85 ms/chunk; at 44.1 kHz ≈ 93 ms/chunk.
+
+// A single chunk above threshold could be noise (click, breath, AC hum).
+// Require this many CONSECUTIVE above-threshold chunks before treating it as
+// real speech. This prevents noise spikes from killing Socratica's audio.
 const SPEECH_LEVEL_THRESHOLD = 0.02
-const SILENCE_CHUNKS_BEFORE_END = 4
+const SPEECH_CONFIRM_CHUNKS = 3    // ≈ 255 ms of sustained sound → real speech
+
+// Silence needed after speech ends before we transcribe.
+// Interrupting ON  → snappy ~750 ms hand-off.
+// Interrupting OFF → patient ~2 s wait so mid-sentence pauses don't fire early.
+const SILENCE_CHUNKS_INTERRUPTING_ON = 9   // ≈ 750 ms
+const SILENCE_CHUNKS_INTERRUPTING_OFF = 24  // ≈ 2 s
+
+// ─── Computed ────────────────────────────────────────────────────────────────
 
 const activePreset = computed(
   () => tutorPresets.find((preset) => preset.id === selectedPresetId.value) ?? tutorPresets[0]
@@ -376,16 +485,13 @@ const activePreset = computed(
 const activeDemoSteps = computed(() => activePreset.value.demoSteps)
 const isBusy = computed(() => connectionState.value === 'connecting')
 const isConnected = computed(() => connectionState.value === 'connected')
+
 const connectionLabel = computed(() => {
   switch (connectionState.value) {
-    case 'connecting':
-      return 'Connecting'
-    case 'connected':
-      return 'Live'
-    case 'error':
-      return 'Error'
-    default:
-      return 'Idle'
+    case 'connecting': return 'Connecting'
+    case 'connected': return 'Live'
+    case 'error': return 'Error'
+    default: return 'Idle'
   }
 })
 
@@ -396,6 +502,220 @@ const statusClass = computed(() => ({
   error: connectionState.value === 'error',
 }))
 
+const conversationPhase = computed<ConversationPhase>(() => {
+  if (!isConnected.value) return 'idle'
+  if (isModelSpeaking.value) return 'speaking'
+  if (isListening.value) return 'listening'
+  if (isTranscribing.value) return 'processing'
+  return 'waiting'
+})
+
+const conversationPhaseLabel = computed(() => {
+  switch (conversationPhase.value) {
+    case 'speaking': return 'Socratica is speaking'
+    case 'listening': return 'Listening to you'
+    case 'processing': return 'Processing your answer'
+    case 'waiting': return 'Waiting for you'
+    default: return 'Session ready'
+  }
+})
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const addEvent = (message: string) => {
+  const timestamp = new Date().toLocaleTimeString()
+  eventLog.value = [`${timestamp} — ${message}`, ...eventLog.value].slice(0, 20)
+}
+
+const scrollTranscriptToBottom = async () => {
+  await nextTick()
+  if (transcriptStreamRef.value) {
+    transcriptStreamRef.value.scrollTop = transcriptStreamRef.value.scrollHeight
+  }
+}
+
+// Replace the pending bubble's text for a speaker.
+// Used for CUMULATIVE sources (browser speech recognition interim results) where
+// each event provides the full current interim text, not just a new chunk.
+const replaceTranscriptText = (speaker: TranscriptSpeaker, text: string) => {
+  if (!text) return
+
+  const entries = transcriptEntries.value
+  const last = entries[entries.length - 1]
+
+  if (last && last.speaker === speaker && last.pending) {
+    last.text = text
+  } else {
+    entries.push({
+      id: String(++nextEntryId),
+      speaker,
+      text,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      pending: true,
+    })
+  }
+  void scrollTranscriptToBottom()
+}
+
+// Stream live text into the current speaker's pending bubble.
+// Gemini sends incremental text chunks, so we APPEND each chunk to build up the full response.
+// If the last entry is already a pending bubble for this speaker, append to it.
+// Otherwise create a new pending bubble — this is what starts a new chat message.
+const streamTranscript = (speaker: TranscriptSpeaker, text: string) => {
+  if (!text) return
+
+  const entries = transcriptEntries.value
+  const last = entries[entries.length - 1]
+
+  if (last && last.speaker === speaker && last.pending) {
+    // Append the new chunk directly (the API includes its own spacing/punctuation).
+    last.text += text
+  } else {
+    entries.push({
+      id: String(++nextEntryId),
+      speaker,
+      text,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      pending: true,
+    })
+  }
+  void scrollTranscriptToBottom()
+}
+
+// Finalize the most recent pending bubble for a speaker.
+// We ALWAYS prefer the text we accumulated via streamTranscript because Gemini
+// sends multiple finished events — one per sentence — and each carries only that
+// sentence as finalText. Using finalText would silently truncate the bubble to
+// just the last sentence. The accumulated text is the complete response.
+const finalizeTranscript = (speaker: TranscriptSpeaker, _finalText?: string) => {
+  const entries = transcriptEntries.value
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].speaker === speaker && entries[i].pending) {
+      const resolved = entries[i].text.trim()
+      if (!resolved) {
+        entries.splice(i, 1)
+      } else {
+        entries[i].pending = false
+      }
+      void scrollTranscriptToBottom()
+      return
+    }
+  }
+}
+
+// Add a finalized entry for the user directly (used when we transcribe locally
+// and send text to Gemini ourselves — no inputTranscription event follows).
+// Merges into an existing pending You bubble if one is already open.
+const addUserEntry = (text: string) => {
+  const trimmed = text.trim()
+  if (!trimmed) return
+
+  const entries = transcriptEntries.value
+  const last = entries[entries.length - 1]
+
+  if (last && last.speaker === 'You' && last.pending) {
+    last.text = trimmed
+    last.pending = false
+    void scrollTranscriptToBottom()
+    return
+  }
+
+  // Avoid exact duplicate consecutive entries.
+  if (last && last.speaker === 'You' && last.text === trimmed) return
+
+  entries.push({
+    id: String(++nextEntryId),
+    speaker: 'You',
+    text: trimmed,
+    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    pending: false,
+  })
+  void scrollTranscriptToBottom()
+}
+
+const buildTutorPrompt = () => {
+  const interruptBehavior = interruptingModeEnabled.value
+    ? 'You may gently interrupt the student when you detect vague reasoning, skipped causal steps, or unsupported claims. Be proactive and conversational — jump in with a short clarifying question or gentle correction when appropriate.'
+    : 'Always wait for the student to fully finish their explanation before you speak. Do not interrupt, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.'
+
+  return [
+    'You are Socratica, a spoken Socratic tutor in a real-time voice conversation.',
+    `Tutor mode: ${tutorMode.value}.`,
+    `Student topic: ${studyTopic.value.trim()}.`,
+    `Learning goal: ${learningGoal.value.trim()}.`,
+    'Greet the student briefly, invite them to begin in their own words.',
+    interruptBehavior,
+    'Keep spoken responses concise and natural — one to three sentences at most.',
+    'Ask one question at a time. After the student answers, briefly acknowledge their point before building on it or challenging it.',
+    'This is a back-and-forth spoken conversation, not a lecture. Avoid long monologues.',
+  ].join(' ')
+}
+
+// ─── Interrupting mode toggle ─────────────────────────────────────────────────
+
+const toggleInterruptingMode = () => {
+  interruptingModeEnabled.value = !interruptingModeEnabled.value
+}
+
+// Notify Socratica of a mid-session mode change so it adjusts behaviour immediately.
+watch(interruptingModeEnabled, (newValue) => {
+  if (!session || connectionState.value !== 'connected') return
+
+  // Clear any accumulated text from the previous mode so it isn't sent in the
+  // wrong context after the switch.
+  accumulatedRecognitionText = ''
+  finalizeTranscript('You')
+
+  const modeMessage = newValue
+    ? '[Behaviour update: You may now proactively interrupt the student mid-sentence with a short question or correction when appropriate.]'
+    : '[Behaviour update: From this point on, always wait for the student to fully finish speaking before responding. Do not interrupt.]'
+
+  try {
+    session.sendClientContent({
+      turns: [{ role: 'user', parts: [{ text: modeMessage }] }],
+      turnComplete: true,
+    })
+    addEvent(`Interrupting mode → ${newValue ? 'ON' : 'OFF'}`)
+  } catch {
+    // Ignore if session is not ready.
+  }
+})
+
+// How long (ms) to wait after Socratica's last audio sample before restarting
+// speech recognition. Her voice lingers in the room/speakers for a moment after
+// the buffer ends — starting recognition immediately picks up that residue and
+// attributes it to "You".
+const RECOGNITION_RESTART_DELAY_MS = 600
+
+// Stop speech recognition while Socratica speaks so the engine cannot buffer her
+// audio. When she finishes, wait for the room echo to decay before restarting.
+watch(isModelSpeaking, (speaking) => {
+  if (!speechRecognitionEnabled || !speechRecognition) return
+
+  if (speaking) {
+    // Socratica started — stop recognition immediately.
+    if (speechRecognitionActive) {
+      speechRecognition.stop()
+      // speechRecognitionActive is set false by the onend handler.
+    }
+    // Drop any stale pending "You" bubble (interim echo from a previous turn).
+    finalizeTranscript('You')
+  } else {
+    // Socratica finished — delay restart so her voice decays before we listen.
+    setTimeout(() => {
+      if (!speechRecognitionEnabled || !speechRecognition || isModelSpeaking.value) return
+      if (!speechRecognitionActive) {
+        try {
+          speechRecognition.start()
+          speechRecognitionActive = true
+        } catch { /* ignore timing issues */ }
+      }
+    }, RECOGNITION_RESTART_DELAY_MS)
+  }
+})
+
+// ─── Preset ───────────────────────────────────────────────────────────────────
+
 const applyPreset = () => {
   const preset = activePreset.value
   sessionTitle.value = preset.title
@@ -405,44 +725,22 @@ const applyPreset = () => {
   statusMessage.value = `Preset loaded: ${preset.label}.`
 }
 
-const addEvent = (message: string) => {
-  const timestamp = new Date().toLocaleTimeString()
-  eventLog.value = [`${timestamp} - ${message}`, ...eventLog.value].slice(0, 20)
-}
-
-const addTranscriptEntry = (speaker: TranscriptSpeaker, text: string) => {
-  const trimmed = text.trim()
-  if (!trimmed) {
-    return
-  }
-
-  const previous = transcriptEntries.value[transcriptEntries.value.length - 1]
-  if (previous && previous.speaker === speaker && previous.text === trimmed) {
-    return
-  }
-
-  transcriptEntries.value.push({ speaker, text: trimmed })
-}
+// ─── Transcript helpers ───────────────────────────────────────────────────────
 
 const sendRecognizedUserText = (text: string) => {
   const trimmed = text.trim()
-  if (!trimmed || !session || connectionState.value !== 'connected') {
-    return
-  }
+  if (!trimmed || !session || connectionState.value !== 'connected') return
 
-  addTranscriptEntry('You', trimmed)
-  currentUserTranscript.value = ''
-  statusMessage.value = 'Sending your answer to Gemini...'
-  addEvent(`Recognized speech locally: "${trimmed}"`)
+  // Record the user's turn as a finalized chat bubble.
+  addUserEntry(trimmed)
+  statusMessage.value = 'Sending your answer to Socratica…'
+  addEvent(`Recognised speech: "${trimmed}"`)
+
+  // User is speaking — always stop Socratica's audio immediately (user can always interrupt).
   clearPlaybackQueue()
 
   session.sendClientContent({
-    turns: [
-      {
-        role: 'user',
-        parts: [{ text: trimmed }],
-      },
-    ],
+    turns: [{ role: 'user', parts: [{ text: trimmed }] }],
     turnComplete: true,
   })
 }
@@ -456,57 +754,50 @@ const transcribeCapturedSpeech = async () => {
   const audioBlob = createWavBlobFromPcmChunks(capturedSpeechChunks, 16000)
   capturedSpeechChunks = []
   isTranscribing.value = true
-  currentUserTranscript.value = 'Transcribing your speech...'
-  statusMessage.value = 'Transcribing your microphone input...'
-  addEvent('Uploading captured speech for backend transcription.')
+  statusMessage.value = 'Transcribing microphone input…'
+  addEvent('Uploading captured speech for transcription.')
 
   try {
     const transcript = await liveVoiceService.transcribeAudio(audioBlob)
-    currentUserTranscript.value = ''
 
     if (!transcript.trim()) {
-      addEvent('No speech recognized from the captured audio.')
+      // Drop any open pending user bubble — nothing was said.
+      finalizeTranscript('You')
+      addEvent('No speech detected in the captured audio.')
       return
     }
 
-    addEvent(`Backend transcription: "${transcript.trim()}"`)
+    addEvent(`Transcription: "${transcript.trim()}"`)
     sendRecognizedUserText(transcript)
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
     console.error('Failed to transcribe captured speech:', error)
-    currentUserTranscript.value = ''
+    finalizeTranscript('You')
     statusMessage.value = 'Could not transcribe your speech.'
-    addEvent('Backend transcription failed.')
+    addEvent(`Transcription failed: ${msg}`)
   } finally {
     isTranscribing.value = false
   }
 }
 
 const submitManualUserInput = () => {
-  if (!manualUserInput.value.trim()) {
-    return
-  }
-
+  if (!manualUserInput.value.trim()) return
   sendRecognizedUserText(manualUserInput.value)
   manualUserInput.value = ''
 }
 
 const clearTranscript = () => {
   transcriptEntries.value = []
-  currentUserTranscript.value = ''
-  currentModelTranscript.value = ''
   manualUserInput.value = ''
   activeSessionId.value = undefined
 }
 
+// ─── Audio playback ───────────────────────────────────────────────────────────
+
 const clearPlaybackQueue = () => {
   activePlaybackNodes.forEach((node) => {
-    try {
-      node.stop()
-    } catch {
-      // Ignore nodes that already ended.
-    }
+    try { node.stop() } catch { /* ignore */ }
   })
-
   activePlaybackNodes = []
   playbackCursor = audioContext ? audioContext.currentTime : 0
   isModelSpeaking.value = false
@@ -516,13 +807,57 @@ const ensureAudioContext = async () => {
   if (!audioContext) {
     audioContext = new AudioContext()
   }
-
   if (audioContext.state === 'suspended') {
     await audioContext.resume()
   }
-
   return audioContext
 }
+
+const decodeBase64ToArrayBuffer = (base64: string): ArrayBuffer => {
+  const binary = window.atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i)
+  return bytes.buffer
+}
+
+const pcm16ToFloat32 = (buffer: ArrayBuffer): Float32Array => {
+  const view = new DataView(buffer)
+  const samples = new Float32Array(buffer.byteLength / 2)
+  for (let i = 0; i < samples.length; i += 1) {
+    samples[i] = view.getInt16(i * 2, true) / 32768
+  }
+  return samples
+}
+
+const enqueueAudioChunk = async (base64Audio: string) => {
+  const ctx = await ensureAudioContext()
+  const floatSamples = pcm16ToFloat32(decodeBase64ToArrayBuffer(base64Audio))
+  if (!floatSamples.length) return
+
+  const buffer = ctx.createBuffer(1, floatSamples.length, 24000)
+  buffer.copyToChannel(floatSamples, 0)
+
+  const source = ctx.createBufferSource()
+  source.buffer = buffer
+  source.connect(ctx.destination)
+
+  const now = ctx.currentTime
+  playbackCursor = Math.max(playbackCursor, now + 0.02)
+  source.start(playbackCursor)
+  playbackCursor += buffer.duration
+  isModelSpeaking.value = true
+  activePlaybackNodes.push(source)
+
+  source.onended = () => {
+    activePlaybackNodes = activePlaybackNodes.filter((n) => n !== source)
+    if (!activePlaybackNodes.length && audioContext) {
+      playbackCursor = audioContext.currentTime
+      isModelSpeaking.value = false
+    }
+  }
+}
+
+// ─── WAV / PCM utilities ──────────────────────────────────────────────────────
 
 const createWavBlobFromPcmChunks = (chunks: ArrayBuffer[], sampleRate: number): Blob => {
   const totalPcmBytes = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0)
@@ -530,9 +865,7 @@ const createWavBlobFromPcmChunks = (chunks: ArrayBuffer[], sampleRate: number): 
   const view = new DataView(wavBuffer)
 
   const writeAscii = (offset: number, value: string) => {
-    for (let index = 0; index < value.length; index += 1) {
-      view.setUint8(offset + index, value.charCodeAt(index))
-    }
+    for (let i = 0; i < value.length; i += 1) view.setUint8(offset + i, value.charCodeAt(i))
   }
 
   writeAscii(0, 'RIFF')
@@ -558,64 +891,8 @@ const createWavBlobFromPcmChunks = (chunks: ArrayBuffer[], sampleRate: number): 
   return new Blob([wavBuffer], { type: 'audio/wav' })
 }
 
-const decodeBase64ToArrayBuffer = (base64: string): ArrayBuffer => {
-  const binary = window.atob(base64)
-  const bytes = new Uint8Array(binary.length)
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index)
-  }
-
-  return bytes.buffer
-}
-
-const pcm16ToFloat32 = (buffer: ArrayBuffer): Float32Array => {
-  const pcmView = new DataView(buffer)
-  const samples = new Float32Array(buffer.byteLength / 2)
-
-  for (let index = 0; index < samples.length; index += 1) {
-    const value = pcmView.getInt16(index * 2, true)
-    samples[index] = value / 32768
-  }
-
-  return samples
-}
-
-const enqueueAudioChunk = async (base64Audio: string) => {
-  const playbackContext = await ensureAudioContext()
-
-  const floatSamples = pcm16ToFloat32(decodeBase64ToArrayBuffer(base64Audio))
-  if (!floatSamples.length) {
-    return
-  }
-
-  const buffer = playbackContext.createBuffer(1, floatSamples.length, 24000)
-  buffer.copyToChannel(floatSamples, 0)
-
-  const source = playbackContext.createBufferSource()
-  source.buffer = buffer
-  source.connect(playbackContext.destination)
-
-  const now = playbackContext.currentTime
-  playbackCursor = Math.max(playbackCursor, now + 0.02)
-  source.start(playbackCursor)
-  playbackCursor += buffer.duration
-  isModelSpeaking.value = true
-  activePlaybackNodes.push(source)
-
-  source.onended = () => {
-    activePlaybackNodes = activePlaybackNodes.filter((node) => node !== source)
-    if (!activePlaybackNodes.length && audioContext) {
-      playbackCursor = audioContext.currentTime
-      isModelSpeaking.value = false
-    }
-  }
-}
-
 const downsampleTo16k = (input: Float32Array, inputSampleRate: number): Float32Array => {
-  if (inputSampleRate === 16000) {
-    return input
-  }
+  if (inputSampleRate === 16000) return input
 
   const ratio = inputSampleRate / 16000
   const outputLength = Math.max(1, Math.round(input.length / ratio))
@@ -627,12 +904,10 @@ const downsampleTo16k = (input: Float32Array, inputSampleRate: number): Float32A
     const nextInputIndex = Math.round((outputIndex + 1) * ratio)
     let sample = 0
     let count = 0
-
-    for (let index = inputIndex; index < nextInputIndex && index < input.length; index += 1) {
-      sample += input[index]
+    for (let i = inputIndex; i < nextInputIndex && i < input.length; i += 1) {
+      sample += input[i]
       count += 1
     }
-
     output[outputIndex] = count > 0 ? sample / count : 0
     outputIndex += 1
     inputIndex = nextInputIndex
@@ -644,40 +919,30 @@ const downsampleTo16k = (input: Float32Array, inputSampleRate: number): Float32A
 const float32ToPcm16 = (input: Float32Array): ArrayBuffer => {
   const buffer = new ArrayBuffer(input.length * 2)
   const view = new DataView(buffer)
-
-  for (let index = 0; index < input.length; index += 1) {
-    const clamped = Math.max(-1, Math.min(1, input[index]))
-    view.setInt16(index * 2, clamped < 0 ? clamped * 32768 : clamped * 32767, true)
+  for (let i = 0; i < input.length; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, input[i]))
+    view.setInt16(i * 2, clamped < 0 ? clamped * 32768 : clamped * 32767, true)
   }
-
   return buffer
 }
 
 const calculateLevel = (input: Float32Array): number => {
   let sum = 0
-  for (let index = 0; index < input.length; index += 1) {
-    sum += input[index] * input[index]
-  }
-
+  for (let i = 0; i < input.length; i += 1) sum += input[i] * input[i]
   return Math.sqrt(sum / input.length)
 }
 
+
+// ─── Server message handler ───────────────────────────────────────────────────
+
 const normalizeServerMessage = (payload: unknown): LiveServerMessage | null => {
-  if (!payload) {
-    return null
-  }
+  if (!payload) return null
 
   if (typeof payload === 'string') {
-    try {
-      return JSON.parse(payload) as LiveServerMessage
-    } catch {
-      return null
-    }
+    try { return JSON.parse(payload) as LiveServerMessage } catch { return null }
   }
 
-  if (payload instanceof MessageEvent) {
-    return normalizeServerMessage(payload.data)
-  }
+  if (payload instanceof MessageEvent) return normalizeServerMessage(payload.data)
 
   if (
     typeof payload === 'object' &&
@@ -695,7 +960,7 @@ const normalizeServerMessage = (payload: unknown): LiveServerMessage | null => {
 const handleServerMessage = async (payload: unknown) => {
   const message = normalizeServerMessage(payload)
   if (!message) {
-    addEvent('Received an unreadable Gemini server payload.')
+    addEvent('Received an unreadable server payload.')
     return
   }
 
@@ -706,8 +971,7 @@ const handleServerMessage = async (payload: unknown) => {
 
   if (!hasSeenServerMessage) {
     hasSeenServerMessage = true
-    addEvent('Received first Gemini server message.')
-    addEvent(`First Gemini message keys: ${Object.keys(message).join(', ') || 'none'}`)
+    addEvent('First Gemini server message received.')
   }
 
   if (message.setupComplete) {
@@ -718,29 +982,32 @@ const handleServerMessage = async (payload: unknown) => {
   const outputTranscription = message.serverContent?.outputTranscription ?? message.outputTranscription
   const serverContent = message.serverContent
 
+  // User interrupted the model — stop playback immediately.
   if (serverContent?.interrupted) {
     clearPlaybackQueue()
-    addEvent('Model response interrupted by new user activity.')
+    // Finalize whatever Socratica had streamed so far so the bubble doesn't stay pending.
+    finalizeTranscript('Socratica')
+    addEvent('Model response interrupted by user.')
   }
 
+  // Live user transcription from Gemini's input transcription service.
+  // (Only fires when real audio is streamed to Gemini via sendRealtimeInput.)
   if (inputTranscription?.text) {
-    currentUserTranscript.value = inputTranscription.text
+    streamTranscript('You', inputTranscription.text)
+  }
+  if (inputTranscription?.finished) {
+    finalizeTranscript('You', inputTranscription.text ?? undefined)
   }
 
-  if (inputTranscription?.finished && currentUserTranscript.value.trim()) {
-    addTranscriptEntry('You', currentUserTranscript.value)
-    currentUserTranscript.value = ''
-  }
-
+  // Live Socratica transcript — streams the model's spoken response as it plays.
   if (outputTranscription?.text) {
-    currentModelTranscript.value = outputTranscription.text
+    streamTranscript('Socratica', outputTranscription.text)
+  }
+  if (outputTranscription?.finished) {
+    finalizeTranscript('Socratica', outputTranscription.text ?? undefined)
   }
 
-  if (outputTranscription?.finished && currentModelTranscript.value.trim()) {
-    addTranscriptEntry('Socratica', currentModelTranscript.value)
-    currentModelTranscript.value = ''
-  }
-
+  // Enqueue model audio chunks for playback.
   const parts = serverContent?.modelTurn?.parts ?? []
   for (const part of parts) {
     if (part.inlineData?.data) {
@@ -748,16 +1015,16 @@ const handleServerMessage = async (payload: unknown) => {
     }
   }
 
-  if (!serverContent) {
-    return
-  }
+  if (!serverContent) return
 
   if (serverContent.waitingForInput) {
-    statusMessage.value = 'Listening for your explanation...'
+    statusMessage.value = 'Socratica is listening — your turn.'
   } else if (serverContent.generationComplete) {
-    statusMessage.value = 'Gemini finished speaking.'
+    statusMessage.value = 'Socratica finished speaking — your turn.'
   }
 }
+
+// ─── Microphone pipeline ──────────────────────────────────────────────────────
 
 const startMicrophone = async () => {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -786,40 +1053,58 @@ const startMicrophone = async () => {
   sinkNode.connect(audioContext.destination)
 
   processorNode.onaudioprocess = (event) => {
-    if (!session || connectionState.value !== 'connected' || !audioContext) {
-      return
-    }
+    if (!session || connectionState.value !== 'connected' || !audioContext) return
 
     const inputSamples = event.inputBuffer.getChannelData(0)
     const level = calculateLevel(inputSamples)
     const downsampled = downsampleTo16k(inputSamples, audioContext.sampleRate)
     const pcm16Buffer = float32ToPcm16(downsampled)
 
+    // Speech detection — same for both modes.
+    // Used to: (a) update isListening UI state, (b) clear Socratica's audio the
+    // moment the user starts speaking, (c) trigger the end-of-turn flush in OFF mode.
     if (level > SPEECH_LEVEL_THRESHOLD) {
-      if (!isListening.value) {
-        addEvent('User speech detected. Clearing pending model audio.')
-      }
+      consecutiveSpeechChunks += 1
 
-      if (!speechActivityStarted) {
+      if (speechActivityStarted) {
+        silenceChunkCount = 0
+        isListening.value = true
+        capturedSpeechChunks.push(pcm16Buffer)
+      } else if (consecutiveSpeechChunks >= SPEECH_CONFIRM_CHUNKS) {
         capturedSpeechChunks = []
+        addEvent('User speech confirmed — clearing model audio.')
+        clearPlaybackQueue()
+        speechActivityStarted = true
+        silenceChunkCount = 0
+        isListening.value = true
+        capturedSpeechChunks.push(pcm16Buffer)
+      } else {
+        capturedSpeechChunks.push(pcm16Buffer)
       }
-      speechActivityStarted = true
-      silenceChunkCount = 0
-      isListening.value = true
-      clearPlaybackQueue()
-      capturedSpeechChunks.push(pcm16Buffer)
       return
     }
+
+    consecutiveSpeechChunks = 0
 
     if (speechActivityStarted) {
       silenceChunkCount += 1
       capturedSpeechChunks.push(pcm16Buffer)
 
-      if (silenceChunkCount >= SILENCE_CHUNKS_BEFORE_END) {
+      if (silenceChunkCount >= SILENCE_CHUNKS_INTERRUPTING_OFF) {
         speechActivityStarted = false
         silenceChunkCount = 0
         isListening.value = false
-        void transcribeCapturedSpeech()
+        if (speechRecognitionEnabled) {
+          // Flush whatever speech recognition accumulated during this turn.
+          capturedSpeechChunks = []
+          if (accumulatedRecognitionText) {
+            const text = accumulatedRecognitionText
+            accumulatedRecognitionText = ''
+            sendRecognizedUserText(text)
+          }
+        } else {
+          void transcribeCapturedSpeech()
+        }
       }
       return
     }
@@ -836,16 +1121,8 @@ const stopAudioPipeline = async () => {
     processorNode.onaudioprocess = null
     processorNode = null
   }
-
-  if (sourceNode) {
-    sourceNode.disconnect()
-    sourceNode = null
-  }
-
-  if (sinkNode) {
-    sinkNode.disconnect()
-    sinkNode = null
-  }
+  if (sourceNode) { sourceNode.disconnect(); sourceNode = null }
+  if (sinkNode) { sinkNode.disconnect(); sinkNode = null }
 
   if (mediaStream) {
     mediaStream.getTracks().forEach((track) => track.stop())
@@ -860,16 +1137,18 @@ const stopAudioPipeline = async () => {
   capturedSpeechChunks = []
   speechActivityStarted = false
   silenceChunkCount = 0
+  consecutiveSpeechChunks = 0
   isListening.value = false
   isModelSpeaking.value = false
 }
+
+// ─── Speech recognition (browser fallback) ───────────────────────────────────
 
 const detachRawSocketListener = () => {
   const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
   if (rawSocket && rawSocketListener) {
     rawSocket.removeEventListener('message', rawSocketListener)
   }
-
   rawSocketListener = null
 }
 
@@ -878,17 +1157,17 @@ const stopSpeechRecognition = () => {
   speechRecognitionActive = false
   voiceInputBlocked.value = false
   isListening.value = false
-  currentUserTranscript.value = ''
-  if (speechRecognition) {
-    speechRecognition.stop()
-  }
+  accumulatedRecognitionText = ''
+  // Finalize any open user bubble left from speech recognition.
+  finalizeTranscript('You')
+  if (speechRecognition) speechRecognition.stop()
 }
 
 const startSpeechRecognition = (): boolean => {
   const RecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition
   if (!RecognitionCtor) {
     voiceInputBlocked.value = true
-    addEvent('Browser speech recognition is not supported here.')
+    addEvent('Browser speech recognition is not supported.')
     return false
   }
 
@@ -899,15 +1178,17 @@ const startSpeechRecognition = (): boolean => {
     speechRecognition.lang = 'en-US'
 
     speechRecognition.onresult = (event) => {
+      // Ignore results while Socratica is speaking — the microphone picks up her
+      // audio through the speakers and speech recognition would attribute it to "You".
+      if (isModelSpeaking.value) return
+
       let interimTranscript = ''
       const finalSegments: string[] = []
 
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        const result = event.results[index]
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i]
         const transcript = result[0]?.transcript?.trim()
-        if (!transcript) {
-          continue
-        }
+        if (!transcript) continue
 
         if (result.isFinal) {
           finalSegments.push(transcript)
@@ -916,34 +1197,63 @@ const startSpeechRecognition = (): boolean => {
         }
       }
 
-      currentUserTranscript.value = interimTranscript.trim()
-      isListening.value = interimTranscript.trim().length > 0
+      const interim = interimTranscript.trim()
+      isListening.value = interim.length > 0 || finalSegments.length > 0
+
+      // Show live interim text in the pending "You" bubble (cumulative → replace).
+      if (interim) {
+        // In OFF mode, prefix with anything already accumulated so the bubble
+        // shows the full in-progress turn text.
+        const display = accumulatedRecognitionText
+          ? `${accumulatedRecognitionText} ${interim}`
+          : interim
+        replaceTranscriptText('You', display)
+      }
 
       if (finalSegments.length) {
-        isListening.value = false
-        sendRecognizedUserText(finalSegments.join(' '))
+        const finalText = finalSegments.join(' ')
+
+        if (interruptingModeEnabled.value) {
+          // ── Interrupting ON ──────────────────────────────────────────────────
+          // Send each finalized clause to Gemini immediately. Gemini responds
+          // right after the natural pause, before the user continues speaking.
+          // This is what creates the interruption: Socratica's audio starts
+          // playing while the user is still mid-explanation.
+          isListening.value = false
+          sendRecognizedUserText(finalText)
+        } else {
+          // ── Interrupting OFF ─────────────────────────────────────────────────
+          // Accumulate clauses. The ScriptProcessor silence detection (2 s) will
+          // flush `accumulatedRecognitionText` once the user truly stops talking,
+          // so Gemini gets the full answer before Socratica responds.
+          accumulatedRecognitionText = accumulatedRecognitionText
+            ? `${accumulatedRecognitionText} ${finalText}`
+            : finalText
+          // Update the bubble with the fully accumulated text so far.
+          replaceTranscriptText('You', accumulatedRecognitionText)
+        }
       }
     }
 
     speechRecognition.onerror = (event) => {
-      addEvent(`Browser speech recognition error${event.error ? `: ${event.error}` : '.'}`)
+      addEvent(`Speech recognition error${event.error ? `: ${event.error}` : '.'}`)
       if (event.error === 'service-not-allowed' || event.error === 'not-allowed') {
         speechRecognitionEnabled = false
         voiceInputBlocked.value = true
-        statusMessage.value = 'This browser blocked local speech recognition. Try Chrome or Edge for voice transcript input.'
+        statusMessage.value = 'This browser blocked speech recognition. Try Chrome or Edge for voice input.'
       }
     }
 
     speechRecognition.onend = () => {
       speechRecognitionActive = false
       isListening.value = false
-      if (speechRecognitionEnabled && connectionState.value === 'connected') {
+      // Do not auto-restart while Socratica is speaking — we intentionally stopped
+      // recognition to prevent her audio from being buffered and later attributed to "You".
+      if (speechRecognitionEnabled && connectionState.value === 'connected' && !isModelSpeaking.value) {
         try {
           speechRecognition?.start()
           speechRecognitionActive = true
-        } catch {
-          // Ignore browser restart timing issues.
-        }
+        } catch { /* ignore restart timing issues */ }
       }
     }
   }
@@ -957,9 +1267,7 @@ const startSpeechRecognition = (): boolean => {
       addEvent('Browser speech recognition started.')
     } catch (error) {
       speechRecognitionEnabled = false
-      addEvent(
-        `Browser speech recognition could not start${error instanceof Error ? `: ${error.message}` : '.'}`
-      )
+      addEvent(`Speech recognition could not start${error instanceof Error ? `: ${error.message}` : '.'}`)
       return false
     }
   }
@@ -967,23 +1275,14 @@ const startSpeechRecognition = (): boolean => {
   return true
 }
 
-const buildTutorPrompt = () => {
-  return [
-    'You are Socratica, a spoken Socratic tutor for a hackathon demo.',
-    `Tutor mode: ${tutorMode.value}.`,
-    `Student topic: ${studyTopic.value.trim()}.`,
-    `Learning goal: ${learningGoal.value.trim()}.`,
-    'Greet the student briefly, invite them to begin, then interrupt politely whenever they are vague, skip a causal link, or make an unsupported claim.',
-    'Keep spoken responses concise, natural, and judge-friendly.',
-  ].join(' ')
-}
+// ─── Session persistence ──────────────────────────────────────────────────────
 
 const loadSavedSessions = async () => {
   try {
     savedSessions.value = await liveVoiceService.listTutorSessions()
   } catch (error) {
     console.error('Failed to load saved sessions:', error)
-    addEvent('Could not load saved tutor sessions.')
+    addEvent('Could not load saved sessions.')
   }
 }
 
@@ -1002,21 +1301,23 @@ const saveCurrentSession = async () => {
       learningGoal: learningGoal.value.trim(),
       tutorMode: tutorMode.value.trim(),
       demoScript: activePreset.value.demoNarration,
-      transcriptEntries: transcriptEntries.value.map<TutorTranscriptEntry>((entry) => ({
-        speaker: entry.speaker,
-        text: entry.text,
-      })),
+      transcriptEntries: transcriptEntries.value
+        .filter((e) => !e.pending && e.text.trim())
+        .map<TutorTranscriptEntry>((entry) => ({
+          speaker: entry.speaker,
+          text: entry.text,
+        })),
     }
 
     const savedSession = await liveVoiceService.saveTutorSession(payload)
     activeSessionId.value = savedSession.id
-    statusMessage.value = 'Session saved to Mongo history.'
+    statusMessage.value = 'Session saved.'
     addEvent(`Saved session "${savedSession.title}".`)
     await loadSavedSessions()
   } catch (error) {
     console.error('Failed to save session:', error)
-    statusMessage.value = 'Failed to save session history.'
-    addEvent('Could not save session history.')
+    statusMessage.value = 'Failed to save session.'
+    addEvent('Could not save session.')
   } finally {
     isSaving.value = false
   }
@@ -1031,45 +1332,44 @@ const loadSavedSession = async (sessionId: string) => {
     learningGoal.value = savedSession.learningGoal ?? ''
     tutorMode.value = savedSession.tutorMode ?? activePreset.value.tutorMode
     transcriptEntries.value = savedSession.transcriptEntries.map((entry) => ({
-      speaker: entry.speaker === 'Socratica' ? 'Socratica' : 'You',
+      id: String(++nextEntryId),
+      speaker: (entry.speaker === 'Socratica' ? 'Socratica' : 'You') as TranscriptSpeaker,
       text: entry.text,
+      time: '',
+      pending: false,
     }))
-    currentUserTranscript.value = ''
-    currentModelTranscript.value = ''
-    statusMessage.value = `Loaded saved session "${savedSession.title}".`
+    statusMessage.value = `Loaded session "${savedSession.title}".`
     addEvent(`Loaded saved session "${savedSession.title}".`)
+    void scrollTranscriptToBottom()
   } catch (error) {
     console.error('Failed to load saved session:', error)
     addEvent('Could not load the selected saved session.')
   }
 }
 
+// ─── Session lifecycle ────────────────────────────────────────────────────────
+
 const startLiveSession = async () => {
-  if (isBusy.value || isConnected.value) {
-    return
-  }
+  if (isBusy.value || isConnected.value) return
 
   connectionState.value = 'connecting'
-  statusMessage.value = 'Requesting a short-lived Gemini Live token...'
+  statusMessage.value = 'Requesting a Gemini Live token…'
   transcriptEntries.value = []
-  currentUserTranscript.value = ''
-  currentModelTranscript.value = ''
-  liveModel.value = 'Resolving model...'
+  liveModel.value = 'Resolving model…'
 
   try {
     hasSeenServerMessage = false
     serverMessageCount = 0
     rawSocketMessageCount = 0
+
     const tokenResponse = await liveVoiceService.createSessionToken()
     liveModel.value = tokenResponse.model
-    statusMessage.value = 'Opening Live API socket...'
+    statusMessage.value = 'Opening Live API socket…'
 
     const ai = new GoogleGenAI({
       apiKey: tokenResponse.token,
       apiVersion: 'v1alpha',
-      httpOptions: {
-        apiVersion: 'v1alpha',
-      },
+      httpOptions: { apiVersion: 'v1alpha' },
     })
 
     session = await ai.live.connect({
@@ -1078,28 +1378,24 @@ const startLiveSession = async () => {
         responseModalities: [Modality.AUDIO],
         systemInstruction: buildTutorPrompt(),
         realtimeInputConfig: {
+          // START_OF_ACTIVITY_INTERRUPTS means the user's speech always interrupts
+          // Socratica's audio. This is always enabled regardless of the interrupting mode toggle.
           activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
         },
         inputAudioTranscription: {},
         outputAudioTranscription: {},
       },
       callbacks: {
-        onopen: () => {
-          addEvent('WebSocket connected.')
-        },
-        onmessage: (message) => {
-          void handleServerMessage(message)
-        },
+        onopen: () => { addEvent('WebSocket connected.') },
+        onmessage: (message) => { void handleServerMessage(message) },
         onerror: (event) => {
           console.error('Gemini Live error:', event)
           connectionState.value = 'error'
           statusMessage.value = 'Gemini Live reported an error.'
-          addEvent(
-            `Gemini Live error received from the browser client${'message' in event && typeof event.message === 'string' && event.message ? `: ${event.message}` : '.'}`
-          )
+          addEvent(`Gemini Live error${'message' in event && typeof event.message === 'string' && event.message ? `: ${event.message}` : '.'}`)
         },
         onclose: (event) => {
-          addEvent(`Gemini Live session closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`)
+          addEvent(`Session closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`)
           if (connectionState.value === 'connected') {
             connectionState.value = 'idle'
             statusMessage.value = 'Session closed.'
@@ -1108,42 +1404,50 @@ const startLiveSession = async () => {
       },
     })
 
+    // Attach raw socket debug listener for the first few messages.
     const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
     if (rawSocket?.addEventListener) {
       rawSocketListener = (event: MessageEvent) => {
         rawSocketMessageCount += 1
         if (rawSocketMessageCount <= 5) {
-          if (typeof event.data === 'string') {
-            addEvent(`Raw socket message #${rawSocketMessageCount}: ${event.data.slice(0, 120)}`)
-          } else {
-            addEvent(`Raw socket message #${rawSocketMessageCount}: ${Object.prototype.toString.call(event.data)}`)
-          }
+          addEvent(
+            typeof event.data === 'string'
+              ? `Raw socket #${rawSocketMessageCount}: ${event.data.slice(0, 120)}`
+              : `Raw socket #${rawSocketMessageCount}: ${Object.prototype.toString.call(event.data)}`
+          )
         }
       }
       rawSocket.addEventListener('message', rawSocketListener)
       rawSocket.addEventListener('close', (event) => {
         addEvent(`Raw socket closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`)
       })
-      rawSocket.addEventListener('error', () => {
-        addEvent('Raw socket reported an error.')
-      })
+      rawSocket.addEventListener('error', () => { addEvent('Raw socket error.') })
     }
 
     voiceInputBlocked.value = false
     await startMicrophone()
     addEvent('Microphone streaming started.')
 
-    connectionState.value = 'connected'
-    statusMessage.value = 'Live session ready. Start talking.'
+    // Start speech recognition for both modes. In OFF mode it accumulates clauses
+    // until the ScriptProcessor's 2 s silence fires. In ON mode it sends each
+    // clause immediately so Socratica can respond before the user finishes.
+    const recognitionStarted = startSpeechRecognition()
+    if (!recognitionStarted) {
+      addEvent('Browser speech recognition unavailable — will use backend transcription.')
+    }
 
-    addEvent('Sending initial tutor prompt to Gemini.')
+    connectionState.value = 'connected'
+    statusMessage.value = 'Live session ready — start talking.'
+
+    // Kick off the conversation with context.
+    addEvent('Sending initial prompt to Socratica.')
     session.sendClientContent({
       turns: [
         {
           role: 'user',
           parts: [
             {
-              text: `The student wants to practice this topic: ${studyTopic.value.trim()}. Ask them to begin in their own words, then challenge them using the ${tutorMode.value} style. Their goal is: ${learningGoal.value.trim()}.`,
+              text: `The student wants to practice: ${studyTopic.value.trim()}. Ask them to begin in their own words, then guide them using the ${tutorMode.value} style. Their goal: ${learningGoal.value.trim()}.`,
             },
           ],
         },
@@ -1153,18 +1457,12 @@ const startLiveSession = async () => {
   } catch (error) {
     console.error('Failed to start live session:', error)
     connectionState.value = 'error'
-    statusMessage.value =
-      error instanceof Error ? error.message : 'Failed to start the live voice session.'
-    addEvent(
-      `Failed to start the live voice session${error instanceof Error ? `: ${error.message}` : '.'}`
-    )
+    statusMessage.value = error instanceof Error ? error.message : 'Failed to start the live voice session.'
+    addEvent(`Failed to start session${error instanceof Error ? `: ${error.message}` : '.'}`)
     stopSpeechRecognition()
     await stopAudioPipeline()
     detachRawSocketListener()
-    if (session) {
-      session.close()
-      session = null
-    }
+    if (session) { session.close(); session = null }
   }
 }
 
@@ -1186,13 +1484,11 @@ const stopLiveSession = async () => {
   }
 }
 
-const formatDate = (value: string) => {
-  return new Date(value).toLocaleString()
-}
+// ─── Misc ─────────────────────────────────────────────────────────────────────
 
-const goHome = () => {
-  router.push('/')
-}
+const formatDate = (value: string) => new Date(value).toLocaleString()
+
+const goHome = () => { router.push('/') }
 
 onMounted(() => {
   applyPreset()
@@ -1205,6 +1501,7 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+/* ── Page shell ─────────────────────────────────────────────────────────────── */
 .live-page {
   min-height: 100vh;
   background:
@@ -1217,6 +1514,7 @@ onBeforeUnmount(() => {
   gap: 1.5rem;
 }
 
+/* ── Hero card ──────────────────────────────────────────────────────────────── */
 .hero-card,
 .panel {
   background: rgba(17, 17, 17, 0.88);
@@ -1241,18 +1539,15 @@ onBeforeUnmount(() => {
   font-size: 0.78rem;
 }
 
-h1,
-h2 {
-  margin: 0;
-}
+h1, h2 { margin: 0; }
 
 h1 {
-  font-size: clamp(2rem, 4vw, 3.25rem);
-  line-height: 1.05;
+  font-size: clamp(1.75rem, 3.5vw, 2.75rem);
+  line-height: 1.08;
 }
 
 h2 {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   margin-bottom: 1rem;
 }
 
@@ -1265,7 +1560,7 @@ h2 {
 
 .hero-copy {
   max-width: 56rem;
-  margin: 1rem 0 0;
+  margin: 0.75rem 0 0;
   line-height: 1.7;
 }
 
@@ -1274,8 +1569,10 @@ h2 {
   gap: 0.75rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 
+/* ── Buttons ────────────────────────────────────────────────────────────────── */
 .primary-button,
 .secondary-button,
 .danger-button,
@@ -1283,10 +1580,11 @@ h2 {
 .saved-session-card {
   border: none;
   border-radius: 999px;
-  padding: 0.9rem 1.25rem;
+  padding: 0.85rem 1.2rem;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 180ms ease, opacity 180ms ease;
+  transition: transform 160ms ease, opacity 160ms ease;
+  font-size: 0.9rem;
 }
 
 .primary-button:hover,
@@ -1300,7 +1598,7 @@ h2 {
 .primary-button:disabled,
 .secondary-button:disabled {
   cursor: wait;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .primary-button {
@@ -1318,44 +1616,287 @@ h2 {
 .danger-button {
   background: rgba(255, 95, 95, 0.16);
   color: #ffd3d3;
-  border: 1px solid rgba(255, 95, 95, 0.2);
+  border: 1px solid rgba(255, 95, 95, 0.25);
 }
 
+/* ── Conversation state bar ─────────────────────────────────────────────────── */
+.conversation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-radius: 20px;
+  border: 1px solid rgba(246, 226, 122, 0.2);
+  background: rgba(17, 17, 17, 0.92);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+  flex-wrap: wrap;
+}
+
+.conversation-state {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.state-icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.state-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.state-text strong {
+  font-size: 0.95rem;
+}
+
+.state-detail {
+  font-size: 0.82rem;
+  color: rgba(245, 241, 232, 0.62);
+}
+
+/* Speaking state — wave bars */
+.conversation-state.speaking .state-icon {
+  background: rgba(105, 219, 124, 0.12);
+}
+
+.wave-icon {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.wave-bar {
+  display: block;
+  width: 3px;
+  border-radius: 2px;
+  background: #8ce99a;
+  animation: wave 0.8s ease-in-out infinite;
+}
+
+.wave-bar:nth-child(1) { height: 8px;  animation-delay: 0s; }
+.wave-bar:nth-child(2) { height: 14px; animation-delay: 0.1s; }
+.wave-bar:nth-child(3) { height: 18px; animation-delay: 0.2s; }
+.wave-bar:nth-child(4) { height: 14px; animation-delay: 0.3s; }
+.wave-bar:nth-child(5) { height: 8px;  animation-delay: 0.4s; }
+
+@keyframes wave {
+  0%, 100% { transform: scaleY(0.5); opacity: 0.7; }
+  50%       { transform: scaleY(1.3); opacity: 1; }
+}
+
+/* Listening state — pulse ring */
+.conversation-state.listening .state-icon {
+  background: rgba(246, 226, 122, 0.12);
+}
+
+.pulse-icon {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #f6e27a;
+  animation: pulse-ring 1.2s ease-out infinite;
+}
+
+.mic-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f6e27a;
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(0.7); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* Processing state — bouncing dots */
+.conversation-state.processing .state-icon {
+  background: rgba(130, 180, 255, 0.12);
+}
+
+.dots-icon {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dot {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #82b4ff;
+  animation: dot-bounce 0.9s ease-in-out infinite;
+}
+
+.dot:nth-child(1) { animation-delay: 0s; }
+.dot:nth-child(2) { animation-delay: 0.18s; }
+.dot:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes dot-bounce {
+  0%, 80%, 100% { transform: translateY(0);    opacity: 0.6; }
+  40%           { transform: translateY(-5px); opacity: 1; }
+}
+
+/* Waiting state */
+.conversation-state.waiting .state-icon {
+  background: rgba(245, 241, 232, 0.06);
+}
+
+.idle-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(245, 241, 232, 0.4);
+  animation: idle-pulse 2s ease-in-out infinite;
+}
+
+@keyframes idle-pulse {
+  0%, 100% { opacity: 0.4; }
+  50%      { opacity: 0.9; }
+}
+
+/* ── Interrupting mode toggle (conversation bar) ────────────────────────────── */
+.interrupt-toggle-button {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 1rem 0.55rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 241, 232, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f5f1e8;
+  cursor: pointer;
+  font-size: 0.88rem;
+  transition: border-color 200ms, background 200ms;
+  white-space: nowrap;
+}
+
+.interrupt-toggle-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.interrupt-toggle-button.toggle-on {
+  border-color: rgba(105, 219, 124, 0.4);
+  background: rgba(105, 219, 124, 0.06);
+}
+
+.toggle-track {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(245, 241, 232, 0.15);
+  position: relative;
+  transition: background 200ms;
+  flex-shrink: 0;
+}
+
+.toggle-on .toggle-track {
+  background: rgba(105, 219, 124, 0.45);
+}
+
+.toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(245, 241, 232, 0.7);
+  transition: transform 200ms, background 200ms;
+}
+
+.toggle-on .toggle-thumb {
+  transform: translateX(14px);
+  background: #8ce99a;
+}
+
+.toggle-label strong {
+  font-weight: 700;
+}
+
+/* ── Inline toggle (setup panel) ────────────────────────────────────────────── */
+.inline-toggle {
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(245, 241, 232, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(245, 241, 232, 0.7);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 700;
+  transition: border-color 160ms, background 160ms, color 160ms;
+}
+
+.inline-toggle.toggle-on {
+  border-color: rgba(105, 219, 124, 0.5);
+  background: rgba(105, 219, 124, 0.1);
+  color: #8ce99a;
+}
+
+/* ── Panel grid ─────────────────────────────────────────────────────────────── */
 .panel-grid {
   display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: minmax(300px, 400px) minmax(0, 1fr) minmax(280px, 360px);
   gap: 1.5rem;
   align-items: start;
 }
 
+.side-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* ── Setup panel ────────────────────────────────────────────────────────────── */
 .field-label,
 .status-label,
 .speaker {
   display: block;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: rgba(245, 241, 232, 0.66);
+  color: rgba(245, 241, 232, 0.6);
 }
 
 .field-input,
 .topic-input {
   width: 100%;
-  margin-top: 0.65rem;
-  border-radius: 16px;
-  border: 1px solid rgba(245, 241, 232, 0.16);
+  margin-top: 0.6rem;
+  border-radius: 14px;
+  border: 1px solid rgba(245, 241, 232, 0.14);
   background: rgba(255, 255, 255, 0.03);
   color: #f5f1e8;
-  padding: 1rem;
+  padding: 0.85rem;
+  box-sizing: border-box;
 }
 
-.field-input {
-  margin-bottom: 1rem;
-}
+.field-input { margin-bottom: 1rem; }
 
 .topic-input {
   resize: vertical;
-  min-height: 8rem;
+  min-height: 7rem;
+  margin-bottom: 1rem;
 }
 
 .status-row {
@@ -1367,33 +1908,20 @@ h2 {
 
 .status-chip {
   border-radius: 999px;
-  padding: 0.4rem 0.8rem;
+  padding: 0.35rem 0.75rem;
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+  flex-shrink: 0;
 }
 
-.status-chip.idle {
-  background: rgba(245, 241, 232, 0.1);
-}
-
-.status-chip.connecting {
-  background: rgba(246, 226, 122, 0.16);
-  color: #f6e27a;
-}
-
-.status-chip.connected {
-  background: rgba(105, 219, 124, 0.16);
-  color: #8ce99a;
-}
-
-.status-chip.error {
-  background: rgba(255, 95, 95, 0.16);
-  color: #ffb3b3;
-}
+.status-chip.idle    { background: rgba(245, 241, 232, 0.1); }
+.status-chip.connecting { background: rgba(246, 226, 122, 0.16); color: #f6e27a; }
+.status-chip.connected  { background: rgba(105, 219, 124, 0.16); color: #8ce99a; }
+.status-chip.error      { background: rgba(255, 95, 95, 0.16); color: #ffb3b3; }
 
 .status-list {
   display: grid;
-  gap: 0.85rem;
+  gap: 0.6rem;
   margin-top: 1rem;
 }
 
@@ -1402,83 +1930,146 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.85rem 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.active-indicator { color: #8ce99a; }
+
+.interrupt-info,
+.script-note {
+  margin-top: 1rem;
+  padding: 1rem;
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
 }
 
+.fallback-panel { margin-top: 1rem; }
+
+.fallback-input { margin-top: 0.65rem; margin-bottom: 0; }
+
+.fallback-send {
+  margin-top: 0.75rem;
+  width: 100%;
+}
+
+/* ── Transcript panel ───────────────────────────────────────────────────────── */
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.transcript-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.message-count {
+  font-size: 0.82rem;
+  color: rgba(245, 241, 232, 0.5);
 }
 
 .transcript-panel {
-  min-height: 24rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 28rem;
 }
 
 .transcript-stream {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
-  max-height: 38rem;
+  gap: 0.75rem;
+  max-height: 60vh;
   overflow-y: auto;
+  padding-right: 0.25rem;
+  scroll-behavior: smooth;
+}
+
+.transcript-stream::-webkit-scrollbar { width: 4px; }
+.transcript-stream::-webkit-scrollbar-track { background: transparent; }
+.transcript-stream::-webkit-scrollbar-thumb {
+  background: rgba(245, 241, 232, 0.15);
+  border-radius: 2px;
 }
 
 .transcript-entry {
-  border-radius: 18px;
-  padding: 1rem;
+  border-radius: 16px;
+  padding: 0.9rem 1rem;
+}
+
+.entry-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.entry-time {
+  font-size: 0.75rem;
+  color: rgba(245, 241, 232, 0.38);
+  flex-shrink: 0;
+}
+
+.pending-label {
+  color: rgba(245, 241, 232, 0.5);
+  font-style: italic;
 }
 
 .transcript-entry p {
-  margin: 0.45rem 0 0;
+  margin: 0;
   line-height: 1.65;
 }
 
 .user-entry {
-  background: rgba(246, 226, 122, 0.08);
-  border: 1px solid rgba(246, 226, 122, 0.16);
+  background: rgba(246, 226, 122, 0.07);
+  border: 1px solid rgba(246, 226, 122, 0.15);
 }
 
 .model-entry {
   background: rgba(105, 219, 124, 0.07);
-  border: 1px solid rgba(105, 219, 124, 0.14);
+  border: 1px solid rgba(105, 219, 124, 0.13);
 }
 
-.pending-entry {
-  opacity: 0.74;
-}
+.pending-entry { opacity: 0.72; }
 
 .empty-state {
   margin: 0;
-  color: rgba(245, 241, 232, 0.55);
+  color: rgba(245, 241, 232, 0.5);
 }
 
+/* ── Demo script / side panels ──────────────────────────────────────────────── */
 .demo-steps {
   margin: 0;
   padding-left: 1.2rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.7rem;
   line-height: 1.6;
 }
 
 .script-note {
-  margin-top: 1.25rem;
+  margin-top: 1rem;
   padding: 1rem;
-  border-radius: 16px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.03);
 }
 
+/* ── Saved sessions ─────────────────────────────────────────────────────────── */
 .saved-session-list {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.65rem;
 }
 
 .saved-session-card {
-  border-radius: 18px;
+  border-radius: 16px;
   text-align: left;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(245, 241, 232, 0.08);
@@ -1486,41 +2077,64 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+  padding: 0.9rem 1rem;
 }
 
 .saved-session-card span {
+  font-size: 0.85rem;
+  color: rgba(245, 241, 232, 0.6);
+}
+
+/* ── Debug events (collapsible) ─────────────────────────────────────────────── */
+.events-details {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.events-summary {
+  cursor: pointer;
   font-size: 0.88rem;
-  color: rgba(245, 241, 232, 0.68);
+  color: rgba(245, 241, 232, 0.6);
+  user-select: none;
+  padding: 0;
+  list-style: none;
+}
+
+.events-summary::-webkit-details-marker { display: none; }
+.events-summary::before { content: '▶  '; font-size: 0.7rem; }
+details[open] .events-summary::before { content: '▼  '; }
+
+.event-count {
+  color: rgba(245, 241, 232, 0.4);
 }
 
 .event-list {
-  margin: 0;
+  margin: 1rem 0 0;
   padding-left: 1.1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  color: rgba(245, 241, 232, 0.82);
+  gap: 0.5rem;
+  color: rgba(245, 241, 232, 0.75);
+  font-size: 0.84rem;
 }
 
-@media (max-width: 1200px) {
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
+@media (max-width: 1280px) {
   .panel-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+    grid-template-rows: auto auto;
   }
 
-  .transcript-panel {
+  .side-panels {
     grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
   }
 }
 
 @media (max-width: 900px) {
-  .live-page {
-    padding: 1rem;
-  }
-
-  .hero-card,
-  .panel-grid {
-    grid-template-columns: 1fr;
-  }
+  .live-page { padding: 1rem; }
 
   .hero-card {
     flex-direction: column;
@@ -1529,6 +2143,24 @@ h2 {
   .hero-actions {
     width: 100%;
     justify-content: flex-start;
+  }
+
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .side-panels {
+    grid-column: 1;
+    grid-template-columns: 1fr;
+  }
+
+  .transcript-stream {
+    max-height: 50vh;
+  }
+
+  .conversation-bar {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>
