@@ -1122,7 +1122,9 @@ const startMicrophone = async () => {
         isListening.value = true
         capturedSpeechChunks.push(pcm16Buffer)
       } else if (consecutiveSpeechChunks >= SPEECH_CONFIRM_CHUNKS) {
-        capturedSpeechChunks = []
+        // Do NOT clear capturedSpeechChunks here — the chunks collected during
+        // the confirmation phase (the else branch below) ARE the first ~180 ms
+        // of the user's speech. Discarding them loses the first word.
         addEvent('User speech confirmed — clearing model audio.')
         const wasModelSpeaking = isModelSpeaking.value
         clearPlaybackQueue()
@@ -1131,16 +1133,17 @@ const startMicrophone = async () => {
           // uses a near-zero restart delay instead of the normal 600 ms echo-decay
           // delay, letting the live interruption transcript appear immediately.
           userInterruptedSocratica = true
-          // Also try to restart recognition right now — the playback has stopped so
-          // there is no echo to worry about. Falls back to the watcher if recognition
-          // hasn't finished stopping yet (it will throw, which we ignore).
-          if (speechRecognitionEnabled && speechRecognition && !speechRecognitionActive) {
-            try {
-              speechRecognition.start()
-              speechRecognitionActive = true
-              addEvent('Recognition restarted immediately for user interruption.')
-            } catch { /* recognition stop() may not be complete yet; watcher will handle it */ }
-          }
+        }
+        // Restart recognition immediately whenever speech is confirmed, not only
+        // on interruption. Recognition may still be in the echo-decay restart
+        // window after Socratica finished naturally — starting it now prevents
+        // the first word from being missed while the timer is still counting down.
+        if (speechRecognitionEnabled && speechRecognition && !speechRecognitionActive) {
+          try {
+            speechRecognition.start()
+            speechRecognitionActive = true
+            addEvent('Recognition restarted on speech confirmation.')
+          } catch { /* recognition may still be stopping; watcher will handle it */ }
         }
         speechActivityStarted = true
         silenceChunkCount = 0
