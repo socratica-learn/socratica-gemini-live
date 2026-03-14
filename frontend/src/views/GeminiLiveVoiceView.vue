@@ -460,6 +460,14 @@ let consecutiveSpeechChunks = 0  // how many consecutive above-threshold chunks 
 // OFF mode only: accumulates isFinal speech recognition segments until the
 // ScriptProcessor detects a long silence, then sends the full accumulated text.
 let accumulatedRecognitionText = ''
+// ON mode only: briefly buffers isFinal segments before flushing to Gemini so
+// she receives a meaningful clause (not a single word) for semantic evaluation.
+let onModeBuffer = ''
+let onModeFlushTimer: ReturnType<typeof setTimeout> | null = null
+// Set to true when the user's mic audio interrupts Socratica mid-speech.
+// Used to skip the 600 ms echo-decay delay and restart recognition immediately
+// so the user's interruption appears in the live transcript right away.
+let userInterruptedSocratica = false
 
 // ─── Audio constants ──────────────────────────────────────────────────────────
 // Each ScriptProcessor chunk is 4096 samples.
@@ -476,6 +484,11 @@ const SPEECH_CONFIRM_CHUNKS = 3    // ≈ 255 ms of sustained sound → real spe
 // Interrupting OFF → patient ~2 s wait so mid-sentence pauses don't fire early.
 const SILENCE_CHUNKS_INTERRUPTING_ON = 9   // ≈ 750 ms
 const SILENCE_CHUNKS_INTERRUPTING_OFF = 24  // ≈ 2 s
+
+// ON mode: how long (ms) to wait after the last isFinal segment before flushing
+// the buffer to Gemini. Brief enough to feel reactive; long enough to group
+// related clauses so Gemini evaluates meaning, not isolated words.
+const ON_MODE_FLUSH_DELAY_MS = 450
 
 // ─── Computed ────────────────────────────────────────────────────────────────
 
@@ -635,7 +648,20 @@ const addUserEntry = (text: string) => {
 
 const buildTutorPrompt = () => {
   const interruptBehavior = interruptingModeEnabled.value
-    ? 'You may gently interrupt the student when you detect vague reasoning, skipped causal steps, or unsupported claims. Be proactive and conversational — jump in with a short clarifying question or gentle correction when appropriate.'
+    ? [
+        'You are in ACTIVE INTERRUPTION MODE.',
+        'Listen carefully to the meaning of what the student says, not just whether they have paused.',
+        'Interrupt the student — even mid-explanation — whenever you detect any of the following:',
+        '(1) A vague or undefined term that needs clarification.',
+        '(2) An incorrect fact, flawed logic, or inconsistent claim.',
+        '(3) A skipped causal step — the student jumped to a conclusion without explaining why.',
+        '(4) The student sounds uncertain, confused, or is visibly guessing.',
+        '(5) The answer is too shallow — important details are being glossed over.',
+        '(6) A natural Socratic moment: a question that would deepen understanding right now.',
+        'When any of these occur, interrupt with ONE short, focused question or gentle correction.',
+        'Do not wait for the student to finish their full thought — jump in naturally, like an engaged tutor leaning in.',
+        'Only stay silent when the student is clearly on the right track and building a solid explanation.',
+      ].join(' ')
     : 'Always wait for the student to fully finish their explanation before you speak. Do not interrupt, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.'
 
   return [
@@ -666,9 +692,23 @@ watch(interruptingModeEnabled, (newValue) => {
   accumulatedRecognitionText = ''
   finalizeTranscript('You')
 
+  // Clear any ON-mode buffer from the previous mode.
+  if (onModeFlushTimer !== null) {
+    clearTimeout(onModeFlushTimer)
+    onModeFlushTimer = null
+  }
+  onModeBuffer = ''
+
   const modeMessage = newValue
-    ? '[Behaviour update: You may now proactively interrupt the student mid-sentence with a short question or correction when appropriate.]'
-    : '[Behaviour update: From this point on, always wait for the student to fully finish speaking before responding. Do not interrupt.]'
+    ? [
+        '[Behaviour update: ACTIVE INTERRUPTION MODE is now ON.',
+        'From this point forward, listen carefully to the meaning of what the student says.',
+        'Interrupt promptly — even mid-sentence — when the student is vague, incorrect, skipping reasoning steps, confused, or needs to elaborate.',
+        'Do not rely on silence alone to decide when to respond.',
+        'React to the content: jump in with one focused question or gentle correction whenever it would help.',
+        'Only stay silent when the student is clearly on the right track.]',
+      ].join(' ')
+    : '[Behaviour update: From this point on, always wait for the student to fully finish speaking before responding. Do not interrupt under any circumstance, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.]'
 
   try {
     session.sendClientContent({
@@ -698,10 +738,21 @@ watch(isModelSpeaking, (speaking) => {
       speechRecognition.stop()
       // speechRecognitionActive is set false by the onend handler.
     }
+    // Cancel any pending ON-mode flush — Socratica is already responding.
+    if (onModeFlushTimer !== null) {
+      clearTimeout(onModeFlushTimer)
+      onModeFlushTimer = null
+    }
+    onModeBuffer = ''
     // Drop any stale pending "You" bubble (interim echo from a previous turn).
     finalizeTranscript('You')
   } else {
-    // Socratica finished — delay restart so her voice decays before we listen.
+    // Socratica finished speaking (either naturally or because the user interrupted).
+    // When the user interrupted, playback was killed immediately so there is no
+    // residual echo — restart recognition quickly so the live transcript shows up.
+    // When Socratica finished naturally, wait for the full echo-decay delay.
+    const delay = userInterruptedSocratica ? 50 : RECOGNITION_RESTART_DELAY_MS
+    userInterruptedSocratica = false
     setTimeout(() => {
       if (!speechRecognitionEnabled || !speechRecognition || isModelSpeaking.value) return
       if (!speechRecognitionActive) {
@@ -710,7 +761,7 @@ watch(isModelSpeaking, (speaking) => {
           speechRecognitionActive = true
         } catch { /* ignore timing issues */ }
       }
-    }, RECOGNITION_RESTART_DELAY_MS)
+    }, delay)
   }
 })
 
@@ -1073,7 +1124,24 @@ const startMicrophone = async () => {
       } else if (consecutiveSpeechChunks >= SPEECH_CONFIRM_CHUNKS) {
         capturedSpeechChunks = []
         addEvent('User speech confirmed — clearing model audio.')
+        const wasModelSpeaking = isModelSpeaking.value
         clearPlaybackQueue()
+        if (wasModelSpeaking) {
+          // User interrupted Socratica. Flag this so the isModelSpeaking watcher
+          // uses a near-zero restart delay instead of the normal 600 ms echo-decay
+          // delay, letting the live interruption transcript appear immediately.
+          userInterruptedSocratica = true
+          // Also try to restart recognition right now — the playback has stopped so
+          // there is no echo to worry about. Falls back to the watcher if recognition
+          // hasn't finished stopping yet (it will throw, which we ignore).
+          if (speechRecognitionEnabled && speechRecognition && !speechRecognitionActive) {
+            try {
+              speechRecognition.start()
+              speechRecognitionActive = true
+              addEvent('Recognition restarted immediately for user interruption.')
+            } catch { /* recognition stop() may not be complete yet; watcher will handle it */ }
+          }
+        }
         speechActivityStarted = true
         silenceChunkCount = 0
         isListening.value = true
@@ -1094,15 +1162,16 @@ const startMicrophone = async () => {
         speechActivityStarted = false
         silenceChunkCount = 0
         isListening.value = false
-        if (speechRecognitionEnabled) {
-          // Flush whatever speech recognition accumulated during this turn.
+        if (speechRecognitionEnabled && accumulatedRecognitionText) {
+          // Speech recognition captured this turn — use its text.
           capturedSpeechChunks = []
-          if (accumulatedRecognitionText) {
-            const text = accumulatedRecognitionText
-            accumulatedRecognitionText = ''
-            sendRecognizedUserText(text)
-          }
+          const text = accumulatedRecognitionText
+          accumulatedRecognitionText = ''
+          sendRecognizedUserText(text)
         } else {
+          // Recognition is off, or was stopped while Socratica spoke (interruption)
+          // and captured nothing. Fall back to backend transcription of the audio.
+          accumulatedRecognitionText = ''
           void transcribeCapturedSpeech()
         }
       }
@@ -1215,12 +1284,26 @@ const startSpeechRecognition = (): boolean => {
 
         if (interruptingModeEnabled.value) {
           // ── Interrupting ON ──────────────────────────────────────────────────
-          // Send each finalized clause to Gemini immediately. Gemini responds
-          // right after the natural pause, before the user continues speaking.
-          // This is what creates the interruption: Socratica's audio starts
-          // playing while the user is still mid-explanation.
-          isListening.value = false
-          sendRecognizedUserText(finalText)
+          // Buffer final segments briefly before flushing to Gemini. This groups
+          // related clauses together so Gemini can evaluate meaning across a full
+          // thought, not just react to a single isolated word or phrase.
+          // The flush fires ON_MODE_FLUSH_DELAY_MS after the last isFinal segment,
+          // giving Gemini richer semantic context to decide whether to interrupt.
+          onModeBuffer = onModeBuffer ? `${onModeBuffer} ${finalText}` : finalText
+          replaceTranscriptText('You', onModeBuffer)
+
+          if (onModeFlushTimer !== null) clearTimeout(onModeFlushTimer)
+          onModeFlushTimer = setTimeout(() => {
+            onModeFlushTimer = null
+            if (!onModeBuffer) return
+            const text = onModeBuffer
+            onModeBuffer = ''
+            // Clear captured audio so the silence-detector fallback doesn't
+            // re-transcribe audio that speech recognition already handled.
+            capturedSpeechChunks = []
+            isListening.value = false
+            sendRecognizedUserText(text)
+          }, ON_MODE_FLUSH_DELAY_MS)
         } else {
           // ── Interrupting OFF ─────────────────────────────────────────────────
           // Accumulate clauses. The ScriptProcessor silence detection (2 s) will
