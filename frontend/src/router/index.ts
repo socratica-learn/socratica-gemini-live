@@ -59,6 +59,21 @@ const router = createRouter({
       path: '/live-voice',
       name: 'live-voice',
       component: () => import('../views/GeminiLiveVoiceView.vue')
+    },
+    {
+      path: '/privacy-policy',
+      name: 'privacy-policy',
+      component: () => import('../views/PrivacyPolicyView.vue')
+    },
+    {
+      path: '/cookie-policy',
+      name: 'cookie-policy',
+      component: () => import('../views/CookiePolicyView.vue')
+    },
+    {
+      path: '/terms-of-service',
+      name: 'terms-of-service',
+      component: () => import('../views/TermsOfServiceView.vue')
     }
   ]
 })

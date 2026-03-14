@@ -8,7 +8,7 @@
         </div>
         <ul class="nav-links">
           <li><a href="#about">About Us</a></li>
-          <li><a href="#discover">Discover More</a></li>
+          <li><a href="#discover">Product</a></li>
           <li><a href="#build">Build your own Socrate</a></li>
           <li><a href="#contact">Contact</a></li>
         </ul>
@@ -47,10 +47,9 @@
             <div class="cta-stack">
             <p class="subtitle">Evaluate your <span class="highlight-neon">understanding</span>, prepare for <span class="highlight-neon">presentations</span>, ace&nbsp;<span class="highlight-neon">interviews</span>,<br>and transform how you learn&nbsp;- all through intelligent conversation.</p>
               <div class="cta-group">
-                <a href="#get-started" class="cta primary">Get Started</a>
-                <button type="button" class="cta primary cta-live" @click="goToLiveVoice">Try Live Voice</button>
-              <a ref="secondaryButton" href="#discover" class="cta secondary" @mouseenter="handleButtonEnter" @mousemove="handleButtonMove" @mouseleave="handleButtonLeave">See How It Works <span class="arrow">→</span></a>
-            </div>
+                <a href="#about" class="cta primary">Learn More</a>
+                <button type="button" class="cta secondary cta-live" @click="goToLiveVoice" @mouseenter="handleButtonEnter" @mousemove="handleButtonMove" @mouseleave="handleButtonLeave">See How It Works <span class="arrow">→</span></button>
+              </div>
           </div>
         </div>
       </div>
@@ -63,7 +62,7 @@
           <img :src="goldenSocrate" alt="Golden Socrates bust" class="about-image" />
         </div>
         <div class="section-content">
-          <h2 class="section-title">About Us</h2>
+          <h2 class="section-title">About Us.</h2>
           <div class="title-divider"></div>
           <p class="section-subheading">"I cannot teach anybody anything. I can only make them think" ― Socrates</p>
           
@@ -85,18 +84,9 @@
     </section>
 
     <!-- Discover More Section -->
-    <section id="discover" ref="discoverSection" class="content-section discover-section">
+    <section id="discover" class="content-section discover-section">
       <div class="carousel-container">
-        <div 
-          class="carousel-wrapper"
-          @touchstart="handleTouchStart"
-          @touchmove="handleTouchMove"
-          @touchend="handleTouchEnd"
-          @mousedown="handleMouseDown"
-          @mousemove="handleMouseMove"
-          @mouseup="handleMouseUp"
-          @mouseleave="handleMouseUp"
-        >
+        <div class="carousel-wrapper">
           <div 
             class="carousel-track" 
             :style="{ transform: `translateX(-${currentSlide * 100}%)` }"
@@ -106,44 +96,27 @@
               :key="index"
               class="carousel-slide"
             >
-              <div 
-                :ref="el => { if (el) cardRefs[index] = el as HTMLElement }"
-                class="feature-card-large scroll-animated-card"
-                :class="{ 'has-background': index === 0 || index === 1 || index === 2 || index === 3 || index === 4, 'text-top-right': index === 0 || index === 3 || index === 4, 'text-bottom-left': index === 1, 'has-video-background': index === 1, 'card-job-prep': index === 3, 'card-written-eval': index === 0, 'card-notes-ipad': index === 4 }"
-                :style="index === 0 ? { backgroundImage: `url(${writtenEvalImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : index === 2 ? { backgroundImage: `url(${brainGold})` } : index === 1 ? {} : index === 3 ? { backgroundImage: `url(${jobImage})`, backgroundSize: 'cover', backgroundPosition: 'bottom center' } : index === 4 ? { backgroundImage: `url(${ipadImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}"
+              <div
+                class="feature-card-large"
+                :class="{ 'has-background': index === 0 || index === 1 || index === 2 || index === 3 || index === 4 || index === 5, 'text-top-right': index === 1 || index === 3 || index === 4, 'text-bottom-left': false, 'card-job-prep': index === 3, 'card-written-eval': index === 0, 'card-notes-ipad': index === 4, 'card-teaching': index === 5, 'card-presentation': index === 1 }"
+                :style="index === 0 ? { backgroundImage: `url(${writtenEvalImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : index === 1 ? { backgroundImage: `url(${presentationBg})`, backgroundSize: 'cover', backgroundPosition: 'center' } : index === 2 ? { backgroundImage: `url(${brainGold})` } : index === 3 ? { backgroundImage: `url(${jobImage})`, backgroundSize: 'cover', backgroundPosition: 'bottom center' } : index === 4 ? { backgroundImage: `url(${ipadImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : index === 5 ? { backgroundImage: `url(${teachingImage})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}"
               >
-                <video 
-                  v-if="index === 1"
-                  class="card-video-background"
-                  autoplay
-                  muted
-                  loop
-                  playsinline
-                >
-                  <source :src="presentationVideo" type="video/mp4" />
-                </video>
-                <h3 
-                  class="feature-title title-section-font gliding-text"
-                  :class="{ 
-                    'glide-in': cardScrollProgress[index] !== undefined && cardScrollProgress[index] > 0.2,
-                    'glide-from-right': index % 2 === 0 || index === 3,
-                    'glide-from-left': index % 2 === 1 && index !== 3,
-                    'title-golden': index === 0
+                <h3
+                  class="feature-title title-section-font"
+                  :class="{
+                    'title-golden': index === 0 || index === 1 || index === 5,
+                    'slide-from-left': index === 0 || index === 2 || index === 5,
+                    'slide-from-right': index === 1 || index === 3 || index === 4,
                   }"
-                  :style="{ 
-                    '--progress': cardScrollProgress[index] || 0
+                  :key="`title-${currentSlide}`"
+                >{{ feature.title }}.</h3>
+                <p
+                  class="feature-description"
+                  :class="{
+                    'slide-from-left': index === 0 || index === 2 || index === 5,
+                    'slide-from-right': index === 1 || index === 3 || index === 4,
                   }"
-                >{{ feature.title }}</h3>
-                <p 
-                  class="feature-description gliding-text"
-                  :class="{ 
-                    'glide-in': cardScrollProgress[index] !== undefined && cardScrollProgress[index] > 0.2,
-                    'glide-from-right': index % 2 === 0 && index !== 3,
-                    'glide-from-left': index % 2 === 1 || index === 3
-                  }"
-                  :style="{ 
-                    '--progress': cardScrollProgress[index] || 0
-                  }"
+                  :key="`desc-${currentSlide}`"
                 >{{ feature.description }}</p>
               </div>
             </div>
@@ -175,33 +148,77 @@
     </section>
 
     <!-- Build your own Socrate Section -->
-    <section id="build" class="content-section">
-      <div class="section-content">
-        <h2 class="section-title">Build your own Socrate</h2>
+    <section id="build" class="content-section build-section">
+      <canvas ref="splineCanvas" class="spline-background"></canvas>
+      <div class="section-content build-content">
+        <h2 class="section-title">Build your own Socrate.</h2>
         <p class="section-text">
-          Customize your learning experience by creating a personalized AI avatar that matches your learning style, 
+          Customize your learning experience by creating a personalized AI avatar that matches your learning style,
           preferences, and goals. Your Socrate adapts to you, making every conversation more effective and engaging.
         </p>
-      </div>
-    </section>
-
-    <!-- Contact Section -->
-    <section id="contact" class="content-section">
-      <div class="section-content">
-        <h2 class="section-title">Contact</h2>
-        <p class="section-text">
-          Have questions or want to learn more? We'd love to hear from you.
-        </p>
-        <div class="contact-info">
-          <p class="contact-text">Get in touch with our team to discover how Socratica can transform your learning journey.</p>
+        <div class="build-cta-wrapper">
+          <button class="cta secondary" @click="goToLiveVoice" style="pointer-events: all;">Get Started <span class="arrow">→</span></button>
         </div>
       </div>
     </section>
+
+    <!-- Footer -->
+    <footer id="contact" class="site-footer">
+      <div class="footer-inner">
+
+        <div class="footer-top">
+          <!-- Brand -->
+          <div class="footer-brand">
+            <span class="footer-brand-name">Socratica</span>
+            <p class="footer-tagline">AI-powered learning, tailored to you.</p>
+            <div class="footer-socials">
+              <a href="mailto:socratica.learn@gmail.com" class="social-icon" aria-label="Email">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"/></svg>
+              </a>
+            </div>
+          </div>
+
+          <!-- Right: nav columns -->
+          <div class="footer-nav">
+            <div class="footer-col">
+              <h4 class="footer-heading">Product</h4>
+              <ul class="footer-links">
+                <li><a href="#discover">Features</a></li>
+                <li><a href="#build">Build your Socrate</a></li>
+                <li><a href="#about">About Us</a></li>
+              </ul>
+            </div>
+
+            <div class="footer-col">
+              <h4 class="footer-heading">Contact</h4>
+              <ul class="footer-links">
+                <li><a href="mailto:socratica.learn@gmail.com">socratica.learn@gmail.com</a></li>
+              </ul>
+            </div>
+
+            <div class="footer-col">
+              <h4 class="footer-heading">Legal</h4>
+              <ul class="footer-links">
+                <li><router-link to="/privacy-policy">Privacy Policy</router-link></li>
+                <li><router-link to="/cookie-policy">Cookie Policy</router-link></li>
+                <li><router-link to="/terms-of-service">Terms of Service</router-link></li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <div class="footer-bottom">
+          <p class="footer-copy">© {{ new Date().getFullYear() }} Socratica. All rights reserved.</p>
+        </div>
+
+      </div>
+    </footer>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
+import { Application } from '@splinetool/runtime'
 import { useRouter } from 'vue-router'
 import logo from '@/assets/logo.png'
 import videoSrc from '@/assets/Socio-technical-3.mp4'
@@ -215,40 +232,22 @@ import mixture from '@/assets/mixture.png'
 import semiTranspBack from '@/assets/semi-transp-back.png'
 import brainGold from '@/assets/brain-gold.png'
 import presentationImage from '@/assets/image copy.png'
+import presentationBg from '@/assets/presentation.jpg'
+import teachingImage from '@/assets/teaching.jpg'
 import micImage from '@/assets/mic.png'
 import writtenEvalImage from '@/assets/David_-_The_Death_of_Socrates 2.jpg'
 import presentationVideo from '@/assets/women presenting.mp4'
 import jobImage from '@/assets/job2-img.png'
 import ipadImage from '@/assets/ipad-img.png'
 
-const secondaryButton = ref<HTMLElement | null>(null)
-const discoverSection = ref<HTMLElement | null>(null)
+const secondaryButton = ref<HTMLElement | null>(null) // used for mouse tracking on secondary CTA
+const splineCanvas = ref<HTMLCanvasElement | null>(null)
+let splineApp: Application | null = null
 let handleScroll: (() => void) | null = null
-let handleWheel: ((event: WheelEvent) => void) | null = null
-let lastWheelTime = 0
-const isCarouselLocked = ref(false)
-let carouselObserver: IntersectionObserver | null = null
-let lockedScrollY = 0
-let isRepositioningScroll = false
-const activationTolerance = 16
-let lastScrollY = 0
-let activationScrollY: number | null = null
-let lastViewportHeight = window.innerHeight
 const router = useRouter()
 
 // Carousel state
 const currentSlide = ref(0)
-const isAutoPlaying = ref(false)
-let autoPlayInterval: number | null = null
-let touchStartX = 0
-let touchEndX = 0
-let isDragging = false
-let dragStartX = 0
-
-// Scroll-based animations
-const cardRefs = ref<(HTMLElement | null)[]>([])
-const cardScrollProgress = ref<number[]>([])
-let scrollAnimationFrame: number | null = null
 
 const features = [
   {
@@ -277,10 +276,6 @@ const features = [
   }
 ]
 
-const goToSlide = (index: number) => {
-  currentSlide.value = index
-}
-
 const nextSlide = () => {
   currentSlide.value = (currentSlide.value + 1) % features.length
 }
@@ -289,144 +284,12 @@ const prevSlide = () => {
   currentSlide.value = (currentSlide.value - 1 + features.length) % features.length
 }
 
-const toggleAutoPlay = () => {
-  isAutoPlaying.value = !isAutoPlaying.value
-  if (isAutoPlaying.value) {
-    autoPlayInterval = window.setInterval(() => {
-      nextSlide()
-    }, 5000)
-  } else {
-    if (autoPlayInterval) {
-      clearInterval(autoPlayInterval)
-      autoPlayInterval = null
-    }
-  }
-}
-
 const goToLogin = () => {
   router.push('/login')
 }
 
 const goToLiveVoice = () => {
   router.push('/live-voice')
-}
-
-// Touch handlers
-const handleTouchStart = (e: TouchEvent) => {
-  touchStartX = e.touches[0].clientX
-}
-
-const handleTouchMove = (e: TouchEvent) => {
-  touchEndX = e.touches[0].clientX
-}
-
-const handleTouchEnd = () => {
-  if (!touchStartX || !touchEndX) return
-  const distance = touchStartX - touchEndX
-  const minSwipeDistance = 50
-  
-  if (Math.abs(distance) > minSwipeDistance) {
-    if (distance > 0) {
-      nextSlide()
-    } else {
-      prevSlide()
-    }
-  }
-  
-  touchStartX = 0
-  touchEndX = 0
-}
-
-// Mouse handlers for desktop drag
-const handleMouseDown = (e: MouseEvent) => {
-  isDragging = true
-  dragStartX = e.clientX
-}
-
-const handleMouseMove = (e: MouseEvent) => {
-  if (!isDragging) return
-  e.preventDefault()
-}
-
-const handleMouseUp = (e: MouseEvent) => {
-  if (!isDragging) return
-  isDragging = false
-  
-  const distance = dragStartX - e.clientX
-  const minSwipeDistance = 50
-  
-  if (Math.abs(distance) > minSwipeDistance) {
-    if (distance > 0) {
-      nextSlide()
-    } else {
-      prevSlide()
-    }
-  }
-  
-  dragStartX = 0
-}
-
-// Apple-style scroll-based animations
-const setupScrollAnimations = () => {
-  const updateScrollProgress = () => {
-    if (scrollAnimationFrame) {
-      cancelAnimationFrame(scrollAnimationFrame)
-    }
-
-    scrollAnimationFrame = requestAnimationFrame(() => {
-      const viewportHeight = window.innerHeight
-      const viewportCenter = viewportHeight / 2
-
-      cardRefs.value.forEach((card, index) => {
-        if (!card) return
-
-        // Only animate the currently visible slide
-        if (index !== currentSlide.value) {
-          cardScrollProgress.value[index] = 0
-          return
-        }
-
-        const cardRect = card.getBoundingClientRect()
-        const cardTop = cardRect.top
-        const cardHeight = cardRect.height
-        const cardCenter = cardTop + cardHeight / 2
-
-        // Calculate distance from viewport center
-        const distanceFromCenter = Math.abs(cardCenter - viewportCenter)
-        const maxDistance = viewportHeight / 2 + cardHeight / 2
-
-        // Calculate progress (0 to 1) - more progress as card center approaches viewport center
-        let progress = 1 - (distanceFromCenter / maxDistance)
-        progress = Math.max(0, Math.min(1, progress))
-
-        // Apply easing for smoother animation
-        progress = easeInOutCubic(progress)
-
-        cardScrollProgress.value[index] = progress
-      })
-
-      scrollAnimationFrame = null
-    })
-  }
-
-  // Easing function for smooth animation
-  const easeInOutCubic = (t: number): number => {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
-  }
-
-  // Watch for carousel slide changes
-  watch(currentSlide, () => {
-    // Reset progress for all cards
-    cardScrollProgress.value = new Array(features.length).fill(0)
-    // Update progress for new slide
-    setTimeout(updateScrollProgress, 100)
-  })
-
-  window.addEventListener('scroll', updateScrollProgress, { passive: true })
-  window.addEventListener('resize', updateScrollProgress, { passive: true })
-  
-  // Initial call
-  updateScrollProgress()
 }
 
 const handleButtonEnter = () => {
@@ -446,40 +309,56 @@ const handleButtonLeave = () => {
   // Reset or maintain state when leaving
 }
 
-const updateActivationScrollY = () => {
-  const firstCard = cardRefs.value[0]
-  if (!firstCard) {
-    activationScrollY = null
-    return
-  }
-
-  const rect = firstCard.getBoundingClientRect()
-  const fitsViewport =
-    rect.width <= window.innerWidth &&
-    rect.height <= window.innerHeight
-
-  if (!fitsViewport) {
-    activationScrollY = null
-    return
-  }
-
-  const cardCenterOffset = rect.top + rect.height / 2
-  const targetScrollY = window.scrollY + cardCenterOffset - window.innerHeight / 2
-  activationScrollY = Math.max(0, Math.round(targetScrollY))
-}
-
 onMounted(() => {
-  // Initialize scroll progress array
-  cardScrollProgress.value = new Array(features.length).fill(0)
-  
-  // Setup scroll-based animations
-  setTimeout(() => {
-    setupScrollAnimations()
-  }, 200)
+  // Initialize Spline via runtime — intercept mouse events to lock Y to center
+  if (splineCanvas.value) {
+    splineApp = new Application(splineCanvas.value)
+    splineApp.load('https://prod.spline.design/BZ0vKZC2HzGTT4JS/scene.splinecode').then(() => {
+      const canvas = splineCanvas.value
+      if (!canvas) return
+
+      let isSynthetic = false
+
+      const dispatchCentered = (clientX: number) => {
+        const rect = canvas.getBoundingClientRect()
+        const centerY = rect.top + rect.height / 2
+        isSynthetic = true
+        canvas.dispatchEvent(new MouseEvent('mousemove', {
+          bubbles: true,
+          cancelable: true,
+          clientX,
+          clientY: centerY,
+          screenX: clientX,
+          screenY: centerY,
+          movementX: 0,
+          movementY: 0,
+        }))
+        isSynthetic = false
+      }
+
+      // Whenever the cursor moves over the canvas, lock Y to center
+      canvas.addEventListener('mousemove', (e: MouseEvent) => {
+        if (isSynthetic) return
+        e.stopImmediatePropagation()
+        dispatchCentered(e.clientX)
+      }, { capture: true })
+
+      // Reset robot to center-facing position when section scrolls into view
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const rect = canvas.getBoundingClientRect()
+            dispatchCentered(rect.left + rect.width / 2)
+          }
+        })
+      }, { threshold: 0.1 })
+
+      observer.observe(canvas)
+    })
+  }
 
   // Small delay to ensure DOM is ready
   setTimeout(() => {
-    updateActivationScrollY()
     const cards = document.querySelectorAll('.about-card')
     let lastScrollTop = window.pageYOffset || document.documentElement.scrollTop
     let isScrollingDown = true
@@ -512,39 +391,7 @@ onMounted(() => {
     
     // Scroll direction detection
     handleScroll = () => {
-      if (window.innerHeight !== lastViewportHeight) {
-        lastViewportHeight = window.innerHeight
-        updateActivationScrollY()
-      }
-
-      if (isCarouselLocked.value && !isRepositioningScroll) {
-        isRepositioningScroll = true
-        requestAnimationFrame(() => {
-          window.scrollTo(0, lockedScrollY)
-          isRepositioningScroll = false
-        })
-        return
-      }
       const currentScrollTop = window.pageYOffset || document.documentElement.scrollTop
-      const scrollingDownThisFrame = currentScrollTop > lastScrollY
-      const hasActivationPoint = activationScrollY !== null
-      const crossedActivation =
-        hasActivationPoint &&
-        scrollingDownThisFrame &&
-        lastScrollY < (activationScrollY as number) &&
-        currentScrollTop >= (activationScrollY as number)
-      lastScrollY = currentScrollTop
-
-      if (!isCarouselLocked.value && currentSlide.value === 0 && crossedActivation) {
-        isCarouselLocked.value = true
-        lockedScrollY = activationScrollY as number
-        isRepositioningScroll = true
-        requestAnimationFrame(() => {
-          window.scrollTo({ top: lockedScrollY, behavior: 'auto' })
-          isRepositioningScroll = false
-        })
-        return
-      }
 
       const aboutSection = document.getElementById('about')
       
@@ -601,90 +448,15 @@ onMounted(() => {
     // Add scroll listener
     window.addEventListener('scroll', handleScroll, { passive: true })
   }, 100)
-
-  handleWheel = (event: WheelEvent) => {
-    const now = Date.now()
-    const isThrottled = now - lastWheelTime < 450
-    const canGoNext = currentSlide.value < features.length - 1
-    const canGoPrev = currentSlide.value > 0
-
-    if (!isCarouselLocked.value) {
-      if (currentSlide.value !== 0 || event.deltaY <= 0 || activationScrollY === null) {
-        return
-      }
-
-      const firstCard = cardRefs.value[0]
-      if (!firstCard) return
-
-      const rect = firstCard.getBoundingClientRect()
-      const cardFullyVisible =
-        rect.top >= 0 &&
-        rect.left >= 0 &&
-        rect.bottom <= window.innerHeight &&
-        rect.right <= window.innerWidth
-      const cardCenter = (rect.top + rect.bottom) / 2
-      const viewportCenter = window.innerHeight / 2
-      const centerDelta = cardCenter - viewportCenter
-      const isCentered = Math.abs(centerDelta) <= activationTolerance
-
-      if (!cardFullyVisible || !isCentered) return
-
-      isCarouselLocked.value = true
-      lockedScrollY = activationScrollY ?? Math.max(0, Math.round(window.scrollY + centerDelta))
-      event.preventDefault()
-
-      if (!isThrottled && canGoNext) {
-        lastWheelTime = now
-        nextSlide()
-      }
-      return
-    }
-
-    // Locked state: only move cards or unlock at bounds
-    if (event.deltaY > 0) {
-      if (canGoNext) {
-        event.preventDefault()
-        if (!isThrottled) {
-          lastWheelTime = now
-          nextSlide()
-        }
-      } else {
-        isCarouselLocked.value = false
-      }
-      return
-    }
-
-    if (event.deltaY < 0) {
-      if (canGoPrev) {
-        event.preventDefault()
-        if (!isThrottled) {
-          lastWheelTime = now
-          prevSlide()
-        }
-      } else {
-        isCarouselLocked.value = false
-      }
-    }
-  }
-
-  window.addEventListener('wheel', handleWheel, { passive: false })
 })
 
 onUnmounted(() => {
   if (handleScroll) {
     window.removeEventListener('scroll', handleScroll)
   }
-  if (handleWheel) {
-    window.removeEventListener('wheel', handleWheel)
-  }
-  if (carouselObserver) {
-    carouselObserver.disconnect()
-  }
-  if (autoPlayInterval) {
-    clearInterval(autoPlayInterval)
-  }
-  if (scrollAnimationFrame) {
-    cancelAnimationFrame(scrollAnimationFrame)
+  if (splineApp) {
+    splineApp.dispose()
+    splineApp = null
   }
 })
 </script>
@@ -1699,6 +1471,32 @@ onUnmounted(() => {
   margin: 0 auto;
 }
 
+.build-section {
+  overflow: hidden;
+  padding: 0;
+}
+
+.spline-background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.build-content {
+  position: relative;
+  z-index: 1;
+  padding: clamp(7rem, 14vw, 13rem) clamp(2.5rem, 6vw, 5rem) clamp(4rem, 8vw, 8rem);
+  pointer-events: none;
+}
+
+.build-cta-wrapper {
+  display: flex;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
 .section-title {
   font-family: "Times New Roman", "Times", serif;
   font-size: clamp(2.5rem, 5vw, 4rem);
@@ -1813,34 +1611,42 @@ onUnmounted(() => {
 }
 
 /* Apple-style scroll animations */
-.scroll-animated-card {
-  position: relative;
+/* Carousel card text slide-in animations */
+@keyframes slideInFromLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-80px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
-/* Gliding text animations - Apple style */
-.gliding-text {
-  opacity: 0;
-  transition: transform 1s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-              opacity 1s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  will-change: transform, opacity;
+@keyframes slideInFromRight {
+  from {
+    opacity: 0;
+    transform: translateX(80px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
-.gliding-text.glide-from-right {
-  transform: translateX(80px);
+.slide-from-left {
+  animation: slideInFromLeft 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  animation-delay: 0.4s;
 }
 
-.gliding-text.glide-from-left {
-  transform: translateX(-80px);
+.slide-from-right {
+  animation: slideInFromRight 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+  animation-delay: 0.4s;
 }
 
-.gliding-text.glide-in {
-  opacity: 1;
-  transform: translateX(0);
-}
-
-/* Description text appears 1s after the title on all cards */
-.feature-description.gliding-text {
-  transition-delay: 1s;
+.feature-description.slide-from-left,
+.feature-description.slide-from-right {
+  animation-delay: 0.65s;
 }
 
 /* Ensure text is above video */
@@ -1972,6 +1778,34 @@ onUnmounted(() => {
   text-align: left;
 }
 
+/* Presentation Prep card */
+.feature-card-large.card-presentation .feature-description {
+  max-width: 720px;
+  margin-left: auto;
+  margin-right: 0;
+}
+
+/* Written Evaluation card: text top-left */
+.feature-card-large.card-written-eval {
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+  padding-top: clamp(3rem, 6vw, 5rem);
+  padding-left: clamp(3rem, 6vw, 5rem);
+}
+
+.feature-card-large.card-written-eval .feature-title.title-section-font {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.feature-card-large.card-written-eval .feature-description {
+  margin-left: 0;
+  margin-right: auto;
+  max-width: 600px;
+  text-align: left;
+}
+
 /* Written Evaluation card: golden title */
 .feature-title.title-golden {
   color: transparent;
@@ -2022,14 +1856,32 @@ onUnmounted(() => {
   margin-left: auto;
 }
 
-/* Hidden until after 1s delay, then visible at 0.9 like other cards */
-.feature-card-large.card-notes-ipad .feature-description.gliding-text {
-  opacity: 0;
-}
-.feature-card-large.card-notes-ipad .feature-description.gliding-text.glide-in {
-  opacity: 0.9;
+
+
+
+/* Teaching Advice card: text aligned left, shifted upward */
+.feature-card-large.card-teaching {
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+  padding-top: clamp(1.5rem, 3vw, 2.5rem);
+  padding-left: clamp(3rem, 6vw, 5rem);
 }
 
+.feature-card-large.card-teaching .feature-title.title-section-font {
+  margin-left: 0;
+  margin-right: auto;
+  margin-bottom: clamp(0.5rem, 1vw, 0.9rem);
+  white-space: nowrap;
+}
+
+.feature-card-large.card-teaching .feature-description {
+  margin-left: 0;
+  margin-right: auto;
+  max-width: 580px;
+  text-align: left;
+  font-size: clamp(0.95rem, 1.6vw, 1.25rem);
+}
 
 .carousel-arrows {
   position: absolute;
@@ -2074,16 +1926,170 @@ onUnmounted(() => {
 
 
 /* Contact Section */
-.contact-info {
-  margin-top: 2rem;
+.site-footer {
+  background: #F7F7F2;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  padding: clamp(3.5rem, 7vw, 6rem) clamp(2.5rem, 6vw, 5rem) 0;
+  width: 100%;
+  position: relative;
+  z-index: 10;
+  isolation: isolate;
 }
 
-.contact-text {
+.footer-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.footer-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(3rem, 6vw, 6rem);
+  padding-bottom: clamp(3rem, 5vw, 4rem);
+}
+
+.footer-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.footer-brand-name {
+  font-family: "Times New Roman", "Times", serif;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  color: #1a1a1a;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.footer-tagline {
   font-family: 'Red Hat Display', sans-serif;
-  font-size: clamp(1rem, 1.8vw, 1.25rem);
-  color: rgba(247, 247, 242, 0.9);
-  line-height: 1.8;
+  font-size: clamp(0.85rem, 1.4vw, 1rem);
+  color: rgba(0, 0, 0, 0.45);
+  line-height: 1.7;
+  max-width: 260px;
+}
+
+.footer-socials {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.social-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid #cb9b51;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f6e27a;
+  text-decoration: none;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+
+.social-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.social-icon:hover {
+  border-color: #cb9b51;
+  color: #cb9b51;
+}
+
+.footer-nav {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(1.5rem, 3vw, 3rem);
+}
+
+.footer-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.footer-heading {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: transparent;
+  background-image: linear-gradient(
+    to right,
+    #8B6914 0%,
+    #cb9b51 22%,
+    #f6e27a 45%,
+    #f6f2c0 50%,
+    #f6e27a 55%,
+    #cb9b51 78%,
+    #8B6914 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  margin: 0;
+}
+
+.footer-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.footer-links a {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: clamp(0.85rem, 1.3vw, 1rem);
+  color: rgba(0, 0, 0, 0.7);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.footer-links a:hover {
+  color: #8B6914;
+}
+
+.footer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(1.25rem, 2.5vw, 1.75rem) 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.08);
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.footer-copy {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.8rem;
+  color: rgba(0, 0, 0, 0.35);
+  margin: 0;
+  width: 100%;
   text-align: center;
+}
+
+.footer-bottom-links {
+  display: flex;
+  gap: 2rem;
+}
+
+.footer-bottom-links a {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.8rem;
+  color: rgba(0, 0, 0, 0.35);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+.footer-bottom-links a:hover {
+  color: rgba(0, 0, 0, 0.7);
 }
 
 @media (max-width: 1024px) {

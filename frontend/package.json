@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.44.0",
+    "@splinetool/runtime": "^1.12.69",
     "axios": "^1.6.2",
     "pinia": "^2.1.7",
     "vue": "^3.4.0",
