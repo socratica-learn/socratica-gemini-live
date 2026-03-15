@@ -42,6 +42,12 @@ const router = createRouter({
       component: () => import('../views/OAuthCallbackView.vue')
     },
     {
+      path: '/build-your-socrate',
+      name: 'build-your-socrate',
+      component: () => import('../views/BuildYourSocrateView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/forgot-password',
       name: 'forgot-password',
       component: () => import('../views/ForgotPasswordView.vue')
@@ -50,18 +56,6 @@ const router = createRouter({
       path: '/reset-password',
       name: 'reset-password',
       component: () => import('../views/ResetPasswordView.vue')
-    },
-    {
-      path: '/live-voice',
-      name: 'live-voice',
-      component: () => import('../views/GeminiLiveVoiceView.vue'),
-      meta: { requiresAuth: true }
-    },
-    {
-      path: '/build-your-socrate',
-      name: 'build-your-socrate',
-      component: () => import('../views/BuildYourSocrateView.vue'),
-      meta: { requiresAuth: true }
     },
     {
       path: '/document-review',
@@ -99,4 +93,3 @@ router.beforeEach((to, from, next) => {
 })
 
 export default router
-
