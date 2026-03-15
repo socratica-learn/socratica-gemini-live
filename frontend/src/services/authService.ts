@@ -118,11 +118,6 @@ export const authService = {
     return response.data.url
   },
 
-  async getMicrosoftAuthUrl(): Promise<string> {
-    const response = await api.get<{ url: string }>('/auth/oauth/microsoft/url')
-    return response.data.url
-  },
-
   async forgotPassword(data: ForgotPasswordRequest): Promise<{ message: string }> {
     const response = await api.post<{ message: string }>('/auth/forgot-password', data)
     return response.data
@@ -133,4 +128,3 @@ export const authService = {
     return response.data
   },
 }
-

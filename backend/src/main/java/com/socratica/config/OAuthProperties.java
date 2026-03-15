@@ -11,7 +11,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class OAuthProperties {
     
     private Google google = new Google();
-    private Microsoft microsoft = new Microsoft();
     private String frontendUrl = "http://localhost:5173";
     
     @PostConstruct
@@ -33,12 +32,5 @@ public class OAuthProperties {
         private String clientId = "";
         private String clientSecret = "";
         private String redirectUri = "http://localhost:8080/api/auth/oauth/google/callback";
-    }
-    
-    @Data
-    public static class Microsoft {
-        private String clientId = "";
-        private String clientSecret = "";
-        private String redirectUri = "http://localhost:8080/api/auth/oauth/microsoft/callback";
     }
 }

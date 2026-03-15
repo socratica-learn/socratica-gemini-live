@@ -9,7 +9,6 @@ const authStore = useAuthStore()
 
 onMounted(() => {
   const token = route.query.token as string
-  const provider = route.query.provider as string
   const userId = route.query.userId as string
   const email = route.query.email as string
   const name = route.query.name as string

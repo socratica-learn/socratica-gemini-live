@@ -34,8 +34,6 @@ add_secret_version "$(secret_name mongodb_uri)" "${SPRING_DATA_MONGODB_URI:-}"
 add_secret_version "$(secret_name jwt_secret)" "${JWT_SECRET:-}"
 add_secret_version "$(secret_name google_client_id)" "${GOOGLE_CLIENT_ID:-}"
 add_secret_version "$(secret_name google_client_secret)" "${GOOGLE_CLIENT_SECRET:-}"
-add_secret_version "$(secret_name microsoft_client_id)" "${MICROSOFT_CLIENT_ID:-}"
-add_secret_version "$(secret_name microsoft_client_secret)" "${MICROSOFT_CLIENT_SECRET:-}"
 add_secret_version "$(secret_name mail_username)" "${MAIL_USERNAME:-}"
 add_secret_version "$(secret_name mail_password)" "${MAIL_PASSWORD:-}"
 

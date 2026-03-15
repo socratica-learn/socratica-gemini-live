@@ -22,8 +22,6 @@ locals {
     jwt_secret              = "socratica-jwt-secret"
     google_client_id        = "socratica-google-client-id"
     google_client_secret    = "socratica-google-client-secret"
-    microsoft_client_id     = "socratica-microsoft-client-id"
-    microsoft_client_secret = "socratica-microsoft-client-secret"
     mail_username           = "socratica-mail-username"
     mail_password           = "socratica-mail-password"
   }
@@ -206,11 +204,6 @@ resource "google_cloud_run_v2_service" "backend" {
       }
 
       env {
-        name  = "MICROSOFT_REDIRECT_URI"
-        value = "${local.backend_project_url}/api/auth/oauth/microsoft/callback"
-      }
-
-      env {
         name  = "GEMINI_MODEL"
         value = var.gemini_model
       }
@@ -270,26 +263,6 @@ resource "google_cloud_run_v2_service" "backend" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.app["google_client_secret"].secret_id
-            version = "latest"
-          }
-        }
-      }
-
-      env {
-        name = "MICROSOFT_CLIENT_ID"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.app["microsoft_client_id"].secret_id
-            version = "latest"
-          }
-        }
-      }
-
-      env {
-        name = "MICROSOFT_CLIENT_SECRET"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.app["microsoft_client_secret"].secret_id
             version = "latest"
           }
         }

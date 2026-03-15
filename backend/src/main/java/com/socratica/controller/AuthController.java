@@ -101,21 +101,6 @@ public class AuthController {
         }
     }
 
-    @GetMapping("/oauth/microsoft/url")
-    public ResponseEntity<?> getMicrosoftAuthUrl() {
-        try {
-            String url = oAuthService.getMicrosoftAuthUrl();
-            return ResponseEntity.ok(new AuthResponse.AuthUrlResponse(url));
-        } catch (Exception e) {
-            log.error("Error generating Microsoft OAuth URL: {}", e.getMessage(), e);
-            ErrorResponse errorResponse = ErrorResponse.builder()
-                    .message("Failed to generate Microsoft OAuth URL")
-                    .error("Internal Server Error")
-                    .build();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-        }
-    }
-
     @GetMapping("/oauth/google/callback")
     public ResponseEntity<?> handleGoogleCallback(@RequestParam("code") String code) {
         try {
@@ -142,38 +127,6 @@ public class AuthController {
             log.error("Unexpected error in Google OAuth callback: {}", e.getMessage(), e);
             ErrorResponse errorResponse = ErrorResponse.builder()
                     .message("An unexpected error occurred during Google authentication")
-                    .error("Internal Server Error")
-                    .build();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);
-        }
-    }
-
-    @GetMapping("/oauth/microsoft/callback")
-    public ResponseEntity<?> handleMicrosoftCallback(@RequestParam("code") String code) {
-        try {
-            AuthResponse response = oAuthService.handleMicrosoftCallback(code);
-            // Redirect to frontend with token and user info
-            String redirectUrl = String.format("%s/auth/callback?token=%s&provider=microsoft&userId=%s&email=%s&name=%s&surname=%s",
-                    oAuthService.getFrontendUrl(), 
-                    response.getToken(),
-                    response.getUser().getId(),
-                    java.net.URLEncoder.encode(response.getUser().getEmail(), java.nio.charset.StandardCharsets.UTF_8),
-                    java.net.URLEncoder.encode(response.getUser().getName() != null ? response.getUser().getName() : "", java.nio.charset.StandardCharsets.UTF_8),
-                    java.net.URLEncoder.encode(response.getUser().getSurname() != null ? response.getUser().getSurname() : "", java.nio.charset.StandardCharsets.UTF_8));
-            return ResponseEntity.status(HttpStatus.FOUND)
-                    .header("Location", redirectUrl)
-                    .build();
-        } catch (IOException e) {
-            log.error("Error handling Microsoft OAuth callback: {}", e.getMessage(), e);
-            ErrorResponse errorResponse = ErrorResponse.builder()
-                    .message("Failed to authenticate with Microsoft")
-                    .error("OAuth Error")
-                    .build();
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-        } catch (Exception e) {
-            log.error("Unexpected error in Microsoft OAuth callback: {}", e.getMessage(), e);
-            ErrorResponse errorResponse = ErrorResponse.builder()
-                    .message("An unexpected error occurred during Microsoft authentication")
                     .error("Internal Server Error")
                     .build();
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorResponse);

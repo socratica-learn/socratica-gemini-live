@@ -140,8 +140,6 @@ If your org enforces periodic re-authentication and you see an `invalid_rapt` er
 - `JWT_SECRET`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
-- `MICROSOFT_CLIENT_ID`
-- `MICROSOFT_CLIENT_SECRET`
 - `MAIL_USERNAME`
 - `MAIL_PASSWORD`
 

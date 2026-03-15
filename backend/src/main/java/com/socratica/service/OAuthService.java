@@ -74,25 +74,6 @@ public class OAuthService {
     }
 
     /**
-     * Get Microsoft OAuth authorization URL
-     */
-    public String getMicrosoftAuthUrl() {
-        String microsoftClientId = oAuthProperties.getMicrosoft().getClientId();
-        String microsoftRedirectUri = oAuthProperties.getMicrosoft().getRedirectUri();
-        
-        if (microsoftClientId == null || microsoftClientId.isEmpty()) {
-            throw new IllegalStateException("Microsoft OAuth client ID is not configured. Please set socratica.oauth.microsoft.client-id in application.yml");
-        }
-        
-        String scope = URLEncoder.encode("openid email profile", StandardCharsets.UTF_8);
-        String redirectUri = URLEncoder.encode(microsoftRedirectUri, StandardCharsets.UTF_8);
-        return String.format(
-            "https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=%s&response_type=code&redirect_uri=%s&response_mode=query&scope=%s",
-            microsoftClientId, redirectUri, scope
-        );
-    }
-
-    /**
      * Handle Google OAuth callback
      */
     public AuthResponse handleGoogleCallback(String code) throws IOException {
@@ -106,40 +87,7 @@ public class OAuthService {
         User user = createOrUpdateUser(
             userInfo.getEmail(),
             userInfo.getGivenName(),
-            userInfo.getFamilyName(),
-            "google"
-        );
-        
-        // Generate JWT token
-        String token = jwtService.generateToken(user.getEmail());
-        
-        return AuthResponse.builder()
-            .token(token)
-            .user(AuthResponse.UserDto.builder()
-                .id(user.getId())
-                .email(user.getEmail())
-                .name(user.getName())
-                .surname(user.getSurname())
-                .build())
-            .build();
-    }
-
-    /**
-     * Handle Microsoft OAuth callback
-     */
-    public AuthResponse handleMicrosoftCallback(String code) throws IOException {
-        // Exchange code for access token
-        String accessToken = exchangeMicrosoftCodeForToken(code);
-        
-        // Get user info from Microsoft
-        MicrosoftUserInfo userInfo = getMicrosoftUserInfo(accessToken);
-        
-        // Create or update user
-        User user = createOrUpdateUser(
-            userInfo.getEmail(),
-            userInfo.getGivenName(),
-            userInfo.getSurname(),
-            "microsoft"
+            userInfo.getFamilyName()
         );
         
         // Generate JWT token
@@ -186,32 +134,6 @@ public class OAuthService {
         }
     }
 
-    private String exchangeMicrosoftCodeForToken(String code) throws IOException {
-        String microsoftClientId = oAuthProperties.getMicrosoft().getClientId();
-        String microsoftClientSecret = oAuthProperties.getMicrosoft().getClientSecret();
-        String microsoftRedirectUri = oAuthProperties.getMicrosoft().getRedirectUri();
-        
-        try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
-            HttpPost request = new HttpPost("https://login.microsoftonline.com/common/oauth2/v2.0/token");
-            request.setHeader("Content-Type", "application/x-www-form-urlencoded");
-            
-            String params = String.format(
-                "client_id=%s&scope=openid email profile&code=%s&redirect_uri=%s&grant_type=authorization_code&client_secret=%s",
-                URLEncoder.encode(microsoftClientId, StandardCharsets.UTF_8),
-                URLEncoder.encode(code, StandardCharsets.UTF_8),
-                URLEncoder.encode(microsoftRedirectUri, StandardCharsets.UTF_8),
-                URLEncoder.encode(microsoftClientSecret, StandardCharsets.UTF_8)
-            );
-            
-            request.setEntity(new StringEntity(params));
-            
-            try (CloseableHttpResponse response = httpClient.execute(request)) {
-                JsonNode jsonNode = objectMapper.readTree(response.getEntity().getContent());
-                return jsonNode.get("access_token").asText();
-            }
-        }
-    }
-
     private GoogleUserInfo getGoogleUserInfo(String accessToken) throws IOException {
         try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
             org.apache.hc.client5.http.classic.methods.HttpGet request = 
@@ -229,25 +151,7 @@ public class OAuthService {
         }
     }
 
-    private MicrosoftUserInfo getMicrosoftUserInfo(String accessToken) throws IOException {
-        try (CloseableHttpClient httpClient = HttpClients.createDefault()) {
-            org.apache.hc.client5.http.classic.methods.HttpGet request = 
-                new org.apache.hc.client5.http.classic.methods.HttpGet("https://graph.microsoft.com/v1.0/me");
-            request.setHeader("Authorization", "Bearer " + accessToken);
-            
-            try (CloseableHttpResponse response = httpClient.execute(request)) {
-                JsonNode jsonNode = objectMapper.readTree(response.getEntity().getContent());
-                String email = jsonNode.has("mail") ? jsonNode.get("mail").asText() : 
-                              jsonNode.has("userPrincipalName") ? jsonNode.get("userPrincipalName").asText() : "";
-                String givenName = jsonNode.has("givenName") ? jsonNode.get("givenName").asText() : "";
-                String surname = jsonNode.has("surname") ? jsonNode.get("surname").asText() : "";
-                
-                return new MicrosoftUserInfo(email, givenName, surname);
-            }
-        }
-    }
-
-    private User createOrUpdateUser(String email, String name, String surname, String provider) {
+    private User createOrUpdateUser(String email, String name, String surname) {
         User user = userRepository.findByEmail(email).orElse(null);
         LocalDateTime now = LocalDateTime.now();
         
@@ -293,19 +197,4 @@ public class OAuthService {
         public String getFamilyName() { return familyName; }
     }
 
-    private static class MicrosoftUserInfo {
-        private final String email;
-        private final String givenName;
-        private final String surname;
-
-        public MicrosoftUserInfo(String email, String givenName, String surname) {
-            this.email = email;
-            this.givenName = givenName;
-            this.surname = surname;
-        }
-
-        public String getEmail() { return email; }
-        public String getGivenName() { return givenName; }
-        public String getSurname() { return surname; }
-    }
 }
