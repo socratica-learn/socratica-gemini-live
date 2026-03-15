@@ -529,6 +529,7 @@ interface LiveSessionConnection {
   sendClientContent: (payload: Record<string, unknown>) => void
   sendRealtimeInput: (payload: { audio: { data: string; mimeType: string } }) => void
   close: () => void
+  isOpen: () => boolean
 }
 
 interface SpeechRecognitionAlternativeLike { transcript: string }
@@ -787,18 +788,25 @@ let accumulatedRecognitionText = ''
 let onModeBuffer = ''
 let onModeFlushTimer: ReturnType<typeof setTimeout> | null = null
 let userInterruptedSocratica = false
+let activeSessionSocket: WebSocket | null = null
+
+const isSocketOpen = (socket: WebSocket | null | undefined) => socket?.readyState === WebSocket.OPEN
 
 const createLiveSessionConnection = (socket: WebSocket): LiveSessionConnection => ({
   socket,
   sendClientContent: (payload) => {
+    if (!isSocketOpen(socket)) return
     socket.send(JSON.stringify({ clientContent: payload }))
   },
   sendRealtimeInput: (payload) => {
+    if (!isSocketOpen(socket)) return
     socket.send(JSON.stringify({ realtimeInput: payload }))
   },
   close: () => {
+    if (socket.readyState === WebSocket.CLOSING || socket.readyState === WebSocket.CLOSED) return
     socket.close()
   },
+  isOpen: () => isSocketOpen(socket),
 })
 
 // ─── Assistant-initiated interruption state ───────────────────────────────────
@@ -1481,6 +1489,25 @@ const stopSpeechRecognition = () => {
   if (speechRecognition) speechRecognition.stop()
 }
 
+const resetSessionUiState = () => {
+  if (onModeFlushTimer !== null) {
+    clearTimeout(onModeFlushTimer)
+    onModeFlushTimer = null
+  }
+  onModeBuffer = ''
+  accumulatedRecognitionText = ''
+  inputTranscriptionAccumulator = ''
+  assistantIsInterruptingUser = false
+  assistantInterruptSuppressUntil = 0
+  speechActivityStarted = false
+  silenceChunkCount = 0
+  consecutiveSpeechChunks = 0
+  capturedSpeechChunks = []
+  countdownValue.value = null
+  presentationPhase.value = 'intro'
+  isListening.value = false
+}
+
 const startSpeechRecognition = (): boolean => {
   const RecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition
   if (!RecognitionCtor) { voiceInputBlocked.value = true; return false }
@@ -1604,6 +1631,7 @@ const startLiveSession = async () => {
 
     session = await new Promise<LiveSessionConnection>((resolve, reject) => {
       const socket = new WebSocket(wsUrl)
+      activeSessionSocket = socket
       let settled = false
 
       socket.onopen = () => {
@@ -1636,7 +1664,13 @@ const startLiveSession = async () => {
       }
 
       socket.onclose = () => {
-        if (connectionState.value === 'connected') {
+        if (activeSessionSocket === socket) {
+          activeSessionSocket = null
+        }
+        if (session?.socket === socket) {
+          session = null
+        }
+        if (connectionState.value === 'connected' || connectionState.value === 'connecting') {
           connectionState.value = 'idle'
         }
       }
@@ -1702,7 +1736,13 @@ const startLiveSession = async () => {
 }
 
 const stopLiveSession = async () => {
-  if (session) { detachRawSocketListener(); session.close(); session = null }
+  resetSessionUiState()
+  if (session) {
+    detachRawSocketListener()
+    session.close()
+    session = null
+  }
+  activeSessionSocket = null
   stopSpeechRecognition()
   await stopAudioPipeline()
   if (isPresentationPrep.value) stopCamera()
