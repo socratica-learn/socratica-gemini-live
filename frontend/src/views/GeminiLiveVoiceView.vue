@@ -272,13 +272,6 @@
 </template>
 
 <script setup lang="ts">
-import {
-  ActivityHandling,
-  GoogleGenAI,
-  Modality,
-  type LiveServerMessage,
-  type Session,
-} from '@google/genai'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -292,6 +285,19 @@ import {
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error'
 type TranscriptSpeaker = 'You' | 'Socratica'
 type ConversationPhase = 'idle' | 'speaking' | 'listening' | 'processing' | 'waiting'
+
+interface GeminiLiveMessage {
+  setupComplete?: unknown
+  serverContent?: {
+    modelTurn?: { parts?: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }> }
+    turnComplete?: boolean
+    interrupted?: boolean
+    inputTranscription?: { text?: string; finished?: boolean }
+    outputTranscription?: { text?: string; finished?: boolean }
+  }
+  inputTranscription?: { text?: string; finished?: boolean }
+  outputTranscription?: { text?: string; finished?: boolean }
+}
 
 interface TranscriptEntry {
   id: string
@@ -437,7 +443,7 @@ const activeSessionId = ref<string | undefined>(undefined)
 const transcriptStreamRef = ref<HTMLElement | null>(null)
 
 // Non-reactive audio/session handles
-let session: Session | null = null
+let session: WebSocket | null = null
 let mediaStream: MediaStream | null = null
 let audioContext: AudioContext | null = null
 let sourceNode: MediaStreamAudioSourceNode | null = null
@@ -447,8 +453,7 @@ let playbackCursor = 0
 let activePlaybackNodes: AudioBufferSourceNode[] = []
 let hasSeenServerMessage = false
 let serverMessageCount = 0
-let rawSocketMessageCount = 0
-let rawSocketListener: ((event: MessageEvent) => void) | null = null
+
 let speechActivityStarted = false
 let silenceChunkCount = 0
 let capturedSpeechChunks: ArrayBuffer[] = []
@@ -808,10 +813,12 @@ watch(interruptingModeEnabled, (newValue) => {
     : '[Behaviour update: From this point on, always wait for the student to fully finish speaking before responding. Do not interrupt under any circumstance, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.]'
 
   try {
-    session.sendClientContent({
-      turns: [{ role: 'user', parts: [{ text: modeMessage }] }],
-      turnComplete: true,
-    })
+    session.send(JSON.stringify({
+      clientContent: {
+        turns: [{ role: 'user', parts: [{ text: modeMessage }] }],
+        turnComplete: true,
+      },
+    }))
     addEvent(`Interrupting mode → ${newValue ? 'ON' : 'OFF'}`)
   } catch {
     // Ignore if session is not ready.
@@ -888,10 +895,12 @@ const sendRecognizedUserText = (text: string) => {
   // User is speaking — always stop Socratica's audio immediately (user can always interrupt).
   clearPlaybackQueue()
 
-  session.sendClientContent({
-    turns: [{ role: 'user', parts: [{ text: trimmed }] }],
-    turnComplete: true,
-  })
+  session.send(JSON.stringify({
+    clientContent: {
+      turns: [{ role: 'user', parts: [{ text: trimmed }] }],
+      turnComplete: true,
+    },
+  }))
 }
 
 const transcribeCapturedSpeech = async () => {
@@ -1096,11 +1105,11 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
 
 // ─── Server message handler ───────────────────────────────────────────────────
 
-const normalizeServerMessage = (payload: unknown): LiveServerMessage | null => {
+const normalizeServerMessage = (payload: unknown): GeminiLiveMessage | null => {
   if (!payload) return null
 
   if (typeof payload === 'string') {
-    try { return JSON.parse(payload) as LiveServerMessage } catch { return null }
+    try { return JSON.parse(payload) as GeminiLiveMessage } catch { return null }
   }
 
   if (payload instanceof MessageEvent) return normalizeServerMessage(payload.data)
@@ -1115,7 +1124,7 @@ const normalizeServerMessage = (payload: unknown): LiveServerMessage | null => {
     return normalizeServerMessage((payload as { data: unknown }).data)
   }
 
-  return payload as LiveServerMessage
+  return payload as GeminiLiveMessage
 }
 
 const handleServerMessage = async (payload: unknown) => {
@@ -1254,7 +1263,9 @@ const startMicrophone = async () => {
       const audioPayload = suppressing
         ? new ArrayBuffer(pcm16Buffer.byteLength)  // silence
         : pcm16Buffer
-      session.sendRealtimeInput({ audio: { data: arrayBufferToBase64(audioPayload), mimeType: 'audio/pcm;rate=16000' } })
+      session.send(JSON.stringify({
+        realtimeInput: { audio: { data: arrayBufferToBase64(audioPayload), mimeType: 'audio/pcm;rate=16000' } },
+      }))
     } catch { /* session may be closing */ }
 
     // Speech detection — same for both modes.
@@ -1361,13 +1372,6 @@ const stopAudioPipeline = async () => {
 
 // ─── Speech recognition (browser fallback) ───────────────────────────────────
 
-const detachRawSocketListener = () => {
-  const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
-  if (rawSocket && rawSocketListener) {
-    rawSocket.removeEventListener('message', rawSocketListener)
-  }
-  rawSocketListener = null
-}
 
 const stopSpeechRecognition = () => {
   speechRecognitionEnabled = false
@@ -1591,84 +1595,72 @@ const startLiveSession = async () => {
   if (isBusy.value || isConnected.value) return
 
   connectionState.value = 'connecting'
-  statusMessage.value = 'Requesting a Gemini Live token…'
+  statusMessage.value = 'Opening Live session…'
   transcriptEntries.value = []
-  liveModel.value = 'Resolving model…'
+  liveModel.value = 'Gemini Live'
 
   try {
     hasSeenServerMessage = false
     serverMessageCount = 0
-    rawSocketMessageCount = 0
 
-    const tokenResponse = await liveVoiceService.createSessionToken()
-    liveModel.value = tokenResponse.model
-    statusMessage.value = 'Opening Live API socket…'
+    // Connect through the backend proxy — the Gemini API key never leaves the server.
+    const apiBase = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'http://localhost:8080')
+    const wsBase = apiBase.replace(/^https/, 'wss').replace(/^http/, 'ws')
+    const wsUrl = `${wsBase}/api/ai/live/proxy`
 
-    const ai = new GoogleGenAI({
-      apiKey: tokenResponse.token,
-      apiVersion: 'v1alpha',
-      httpOptions: { apiVersion: 'v1alpha' },
-    })
+    let settled = false
+    session = await new Promise<WebSocket>((resolve, reject) => {
+      const socket = new WebSocket(wsUrl)
 
-    session = await ai.live.connect({
-      model: tokenResponse.model,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        systemInstruction: buildTutorPrompt(),
-        realtimeInputConfig: {
-          // START_OF_ACTIVITY_INTERRUPTS means the user's speech always interrupts
-          // Socratica's audio. This is always enabled regardless of the interrupting mode toggle.
-          activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-        },
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-      },
-      callbacks: {
-        onopen: () => { addEvent('WebSocket connected.') },
-        onmessage: (message) => { void handleServerMessage(message) },
-        onerror: (event) => {
-          console.error('Gemini Live error:', event)
+      socket.onopen = () => {
+        // Send setup message — backend injects the model name.
+        socket.send(JSON.stringify({
+          setup: {
+            systemInstruction: buildTutorPrompt(),
+            responseModalities: ['AUDIO'],
+            realtimeInputConfig: {
+              // User speech always interrupts Socratica's audio regardless of the interruption toggle.
+              activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
+            },
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+          },
+        }))
+        settled = true
+        addEvent('WebSocket connected.')
+        resolve(socket)
+      }
+
+      socket.onerror = (event) => {
+        if (!settled) {
+          reject(new Error('Failed to connect to live session proxy'))
+        } else {
+          console.error('Live session error:', event)
           connectionState.value = 'error'
-          statusMessage.value = 'Gemini Live reported an error.'
-          addEvent(`Gemini Live error${'message' in event && typeof event.message === 'string' && event.message ? `: ${event.message}` : '.'}`)
-        },
-        onclose: (event) => {
+          statusMessage.value = 'Connection error.'
+          addEvent('Live session error.')
+        }
+      }
+
+      socket.onclose = (event) => {
+        if (!settled) {
+          reject(new Error(`Connection closed before ready (code ${event.code})`))
+        } else {
           addEvent(`Session closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`)
           if (connectionState.value === 'connected') {
             connectionState.value = 'idle'
             statusMessage.value = 'Session closed.'
           }
-        },
-      },
-    })
-
-    // Attach raw socket debug listener for the first few messages.
-    const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
-    if (rawSocket?.addEventListener) {
-      rawSocketListener = (event: MessageEvent) => {
-        rawSocketMessageCount += 1
-        if (rawSocketMessageCount <= 5) {
-          addEvent(
-            typeof event.data === 'string'
-              ? `Raw socket #${rawSocketMessageCount}: ${event.data.slice(0, 120)}`
-              : `Raw socket #${rawSocketMessageCount}: ${Object.prototype.toString.call(event.data)}`
-          )
         }
       }
-      rawSocket.addEventListener('message', rawSocketListener)
-      rawSocket.addEventListener('close', (event) => {
-        addEvent(`Raw socket closed (code ${event.code}${event.reason ? `: ${event.reason}` : ''}).`)
-      })
-      rawSocket.addEventListener('error', () => { addEvent('Raw socket error.') })
-    }
+
+      socket.onmessage = (event) => { void handleServerMessage(event.data) }
+    })
 
     voiceInputBlocked.value = false
     await startMicrophone()
     addEvent('Microphone streaming started.')
 
-    // Start speech recognition for both modes. In OFF mode it accumulates clauses
-    // until the ScriptProcessor's 2 s silence fires. In ON mode it sends each
-    // clause immediately so Socratica can respond before the user finishes.
     const recognitionStarted = startSpeechRecognition()
     if (!recognitionStarted) {
       addEvent('Browser speech recognition unavailable — will use backend transcription.')
@@ -1677,21 +1669,18 @@ const startLiveSession = async () => {
     connectionState.value = 'connected'
     statusMessage.value = 'Live session ready — start talking.'
 
-    // Kick off the conversation with context.
     addEvent('Sending initial prompt to Socratica.')
-    session.sendClientContent({
-      turns: [
-        {
+    session.send(JSON.stringify({
+      clientContent: {
+        turns: [{
           role: 'user',
-          parts: [
-            {
-              text: `The student wants to practice: ${studyTopic.value.trim()}. Ask them to begin in their own words, then guide them using the ${tutorMode.value} style. Their goal: ${learningGoal.value.trim()}.`,
-            },
-          ],
-        },
-      ],
-      turnComplete: true,
-    })
+          parts: [{
+            text: `The student wants to practice: ${studyTopic.value.trim()}. Ask them to begin in their own words, then guide them using the ${tutorMode.value} style. Their goal: ${learningGoal.value.trim()}.`,
+          }],
+        }],
+        turnComplete: true,
+      },
+    }))
   } catch (error) {
     console.error('Failed to start live session:', error)
     connectionState.value = 'error'
@@ -1699,14 +1688,12 @@ const startLiveSession = async () => {
     addEvent(`Failed to start session${error instanceof Error ? `: ${error.message}` : '.'}`)
     stopSpeechRecognition()
     await stopAudioPipeline()
-    detachRawSocketListener()
     if (session) { session.close(); session = null }
   }
 }
 
 const stopLiveSession = async () => {
   if (session) {
-    detachRawSocketListener()
     session.close()
     session = null
   }

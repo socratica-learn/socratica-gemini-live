@@ -112,6 +112,12 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- WebSocket support for Gemini Live proxy -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
         <!-- Spring Mail for email sending -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
