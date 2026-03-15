@@ -486,9 +486,16 @@ const SILENCE_CHUNKS_INTERRUPTING_ON = 9   // ≈ 750 ms
 const SILENCE_CHUNKS_INTERRUPTING_OFF = 24  // ≈ 2 s
 
 // ON mode: how long (ms) to wait after the last isFinal segment before flushing
-// the buffer to Gemini. Brief enough to feel reactive; long enough to group
-// related clauses so Gemini evaluates meaning, not isolated words.
-const ON_MODE_FLUSH_DELAY_MS = 450
+// the buffer to Gemini. Long enough to accumulate a meaningful clause so Gemini
+// evaluates intent and context, not a single isolated word.
+// 1000 ms strikes a balance: reactive enough to feel live, patient enough that
+// natural mid-sentence pauses don't trigger a premature interruption.
+const ON_MODE_FLUSH_DELAY_MS = 1000
+
+// ON mode: minimum number of words a flushed clause must contain before it is
+// sent to Gemini. Fillers ("um", "so", "like") and single-word fragments give
+// Gemini too little context to make a good interruption decision.
+const ON_MODE_MIN_WORDS = 5
 
 // ─── Computed ────────────────────────────────────────────────────────────────
 
@@ -649,18 +656,17 @@ const addUserEntry = (text: string) => {
 const buildTutorPrompt = () => {
   const interruptBehavior = interruptingModeEnabled.value
     ? [
-        'You are in ACTIVE INTERRUPTION MODE.',
-        'Listen carefully to the meaning of what the student says, not just whether they have paused.',
-        'Interrupt the student — even mid-explanation — whenever you detect any of the following:',
-        '(1) A vague or undefined term that needs clarification.',
-        '(2) An incorrect fact, flawed logic, or inconsistent claim.',
-        '(3) A skipped causal step — the student jumped to a conclusion without explaining why.',
-        '(4) The student sounds uncertain, confused, or is visibly guessing.',
-        '(5) The answer is too shallow — important details are being glossed over.',
-        '(6) A natural Socratic moment: a question that would deepen understanding right now.',
-        'When any of these occur, interrupt with ONE short, focused question or gentle correction.',
-        'Do not wait for the student to finish their full thought — jump in naturally, like an engaged tutor leaning in.',
-        'Only stay silent when the student is clearly on the right track and building a solid explanation.',
+        'You are in ACTIVE LISTENING MODE.',
+        'Listen carefully to the meaning and accuracy of what the student says, not just whether they have paused.',
+        'Your default is silence — stay quiet and let the student speak unless one of the following high-value moments arises:',
+        '(1) A clearly incorrect fact or logical error that will compound if left uncorrected now.',
+        '(2) A critical causal step is skipped — the student jumped to a conclusion without explaining why.',
+        '(3) The student is visibly going in the wrong direction and continuing would waste their effort.',
+        'When one of these moments occurs, interrupt naturally and briefly with ONE focused question or a short gentle correction.',
+        'Keep your interruption to one sentence. Do not lecture — ask.',
+        'If the student is on the right track, even if imperfect or incomplete, stay silent and let them finish.',
+        'Minor hesitations, filler words, or small omissions do not warrant an interruption.',
+        'Reserve interruptions for moments where stepping in genuinely improves the student\'s understanding.',
       ].join(' ')
     : 'Always wait for the student to fully finish their explanation before you speak. Do not interrupt, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.'
 
@@ -701,12 +707,13 @@ watch(interruptingModeEnabled, (newValue) => {
 
   const modeMessage = newValue
     ? [
-        '[Behaviour update: ACTIVE INTERRUPTION MODE is now ON.',
-        'From this point forward, listen carefully to the meaning of what the student says.',
-        'Interrupt promptly — even mid-sentence — when the student is vague, incorrect, skipping reasoning steps, confused, or needs to elaborate.',
-        'Do not rely on silence alone to decide when to respond.',
-        'React to the content: jump in with one focused question or gentle correction whenever it would help.',
-        'Only stay silent when the student is clearly on the right track.]',
+        '[Behaviour update: ACTIVE LISTENING MODE is now ON.',
+        'Listen carefully to the meaning and accuracy of what the student says.',
+        'Your default is silence — only interrupt for high-value moments:',
+        'a clear factual error, a critical missing reasoning step, or the student heading in the wrong direction.',
+        'Keep any interruption to one short question or correction.',
+        'Do not interrupt for hesitations, minor omissions, or imperfect phrasing.',
+        'If the student is on the right track, stay silent and let them finish.]',
       ].join(' ')
     : '[Behaviour update: From this point on, always wait for the student to fully finish speaking before responding. Do not interrupt under any circumstance, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.]'
 
@@ -1117,15 +1124,14 @@ const startMicrophone = async () => {
     const downsampled = downsampleTo16k(inputSamples, audioContext.sampleRate)
     const pcm16Buffer = float32ToPcm16(downsampled)
 
-    // Stream audio to Gemini Live in real-time.
-    // This enables Gemini's built-in VAD, inputAudioTranscription, and
-    // START_OF_ACTIVITY_INTERRUPTS to work correctly.
-    // Skip while Socratica is speaking to prevent mic echo from being sent.
-    if (!isModelSpeaking.value) {
-      try {
-        session.sendRealtimeInput({ audio: { data: arrayBufferToBase64(pcm16Buffer), mimeType: 'audio/pcm;rate=16000' } })
-      } catch { /* session may be closing */ }
-    }
+    // Stream audio to Gemini Live in real-time — always, even while Socratica
+    // is speaking. Gemini needs to receive the user's audio to trigger
+    // START_OF_ACTIVITY_INTERRUPTS and stop its own generation when the user
+    // starts talking. Browser echo cancellation (echoCancellation: true in
+    // getUserMedia) handles mic feedback from the speakers.
+    try {
+      session.sendRealtimeInput({ audio: { data: arrayBufferToBase64(pcm16Buffer), mimeType: 'audio/pcm;rate=16000' } })
+    } catch { /* session may be closing */ }
 
     // Speech detection — same for both modes.
     // Used to: (a) update isListening UI state, (b) clear Socratica's audio the
@@ -1314,9 +1320,21 @@ const startSpeechRecognition = (): boolean => {
             onModeBuffer = ''
             capturedSpeechChunks = []
             isListening.value = false
-            // Gemini receives audio via sendRealtimeInput and handles the response.
-            // Just finalize the local transcript display.
-            addUserEntry(text)
+            // Only send to Gemini if the clause is long enough to carry meaning.
+            // Short fragments (fillers, single words) give Gemini too little context
+            // to make a good interruption decision and would cause over-interruption.
+            const wordCount = text.trim().split(/\s+/).filter(Boolean).length
+            if (wordCount < ON_MODE_MIN_WORDS) {
+              addUserEntry(text)
+              return
+            }
+            // Gemini's VAD waits for silence before responding, so it would never
+            // interrupt mid-speech on its own. Sending the clause via sendClientContent
+            // gives Gemini the semantic content immediately so it can decide whether
+            // a pedagogically useful interruption is warranted right now.
+            // Audio streaming (sendRealtimeInput) still runs in parallel for
+            // inputAudioTranscription and START_OF_ACTIVITY_INTERRUPTS.
+            sendRecognizedUserText(text)
           }, ON_MODE_FLUSH_DELAY_MS)
         } else {
           // ── Interrupting OFF ─────────────────────────────────────────────────
