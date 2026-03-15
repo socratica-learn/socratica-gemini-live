@@ -13,6 +13,9 @@ import org.springframework.context.annotation.Configuration;
 @Slf4j
 public class GeminiClientConfig {
 
+    @Value("${socratica.gemini.api-key:}")
+    private String apiKey;
+
     @Value("${socratica.gemini.project-id:}")
     private String projectId;
 
@@ -21,9 +24,16 @@ public class GeminiClientConfig {
 
     @Bean
     public Client geminiClient() {
+        if (apiKey != null && !apiKey.isBlank()) {
+            log.info("Initializing Gemini Client with API key auth");
+            return Client.builder()
+                    .apiKey(apiKey)
+                    .build();
+        }
+
         if (projectId == null || projectId.isBlank()) {
             throw new IllegalStateException(
-                    "GOOGLE_CLOUD_PROJECT must be set when using Vertex AI-backed Gemini services.");
+                    "Set GOOGLE_API_KEY for local development or GOOGLE_CLOUD_PROJECT for Vertex AI.");
         }
 
         log.info("Initializing Gemini Client with Vertex AI: project={}, location={}", projectId, location);

@@ -4,11 +4,13 @@ data "google_project" "current" {
 
 locals {
   enabled_services = toset([
+    "apikeys.googleapis.com",
     "aiplatform.googleapis.com",
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
     "cloudresourcemanager.googleapis.com",
     "iam.googleapis.com",
+    "orgpolicy.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "serviceusage.googleapis.com",
@@ -18,12 +20,12 @@ locals {
   frontend_project_url = trimspace(var.frontend_public_url) != "" ? trimspace(var.frontend_public_url) : "http://localhost:5173"
 
   base_secret_ids = {
-    mongodb_uri             = "socratica-mongodb-uri"
-    jwt_secret              = "socratica-jwt-secret"
-    google_client_id        = "socratica-google-client-id"
-    google_client_secret    = "socratica-google-client-secret"
-    mail_username           = "socratica-mail-username"
-    mail_password           = "socratica-mail-password"
+    mongodb_uri          = "socratica-mongodb-uri"
+    jwt_secret           = "socratica-jwt-secret"
+    google_client_id     = "socratica-google-client-id"
+    google_client_secret = "socratica-google-client-secret"
+    mail_username        = "socratica-mail-username"
+    mail_password        = "socratica-mail-password"
   }
 
   secret_ids = local.base_secret_ids
@@ -58,6 +60,38 @@ resource "google_project_service" "required" {
   project            = var.project_id
   service            = each.value
   disable_on_destroy = false
+}
+
+resource "google_org_policy_policy" "org_disable_service_account_api_key_creation_managed" {
+  name   = "organizations/${var.organization_id}/policies/iam.managed.disableServiceAccountApiKeyCreation"
+  parent = "organizations/${var.organization_id}"
+
+  spec {
+    rules {
+      enforce = "TRUE"
+    }
+  }
+
+  depends_on = [
+    google_project_service.required["orgpolicy.googleapis.com"],
+    terraform_data.project_org_guardrail,
+  ]
+}
+
+resource "google_org_policy_policy" "project_disable_service_account_api_key_creation_managed" {
+  name   = "projects/${var.project_id}/policies/iam.managed.disableServiceAccountApiKeyCreation"
+  parent = "projects/${var.project_id}"
+
+  spec {
+    rules {
+      enforce = "TRUE"
+    }
+  }
+
+  depends_on = [
+    google_project_service.required["orgpolicy.googleapis.com"],
+    google_org_policy_policy.org_disable_service_account_api_key_creation_managed,
+  ]
 }
 
 resource "terraform_data" "project_org_guardrail" {

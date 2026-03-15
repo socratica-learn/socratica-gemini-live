@@ -44,6 +44,9 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     @Value("${socratica.gemini.project-id:}")
     private String projectId;
 
+    @Value("${socratica.gemini.api-key:}")
+    private String apiKey;
+
     @Value("${socratica.gemini.location:europe-west4}")
     private String location;
 
@@ -65,6 +68,11 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
         if (projectId == null || projectId.isBlank()) {
             log.error("GOOGLE_CLOUD_PROJECT is not configured — rejecting proxy session {}", browserSession.getId());
+            if (apiKey != null && !apiKey.isBlank()) {
+                sendErrorAndClose(browserSession,
+                        "Live voice sessions still require Vertex AI credentials. GOOGLE_API_KEY only enables local backend Gemini calls.");
+                return;
+            }
             sendErrorAndClose(browserSession, "GOOGLE_CLOUD_PROJECT is not configured on the server.");
             return;
         }

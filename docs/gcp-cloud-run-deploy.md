@@ -23,6 +23,7 @@ All Gemini traffic uses Vertex AI.
 
 - Server-side generation uses the backend Cloud Run service account with `roles/aiplatform.user`.
 - Gemini Live uses the backend websocket proxy, which authenticates to Vertex AI with the same service account credentials.
+- Terraform also enables `apikeys.googleapis.com` so the project can create restricted Vertex AI API keys for local development when needed.
 
 ## Secrets
 
