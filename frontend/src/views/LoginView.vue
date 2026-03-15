@@ -50,7 +50,7 @@ async function handleSubmit() {
       email: formData.value.email,
       password: formData.value.password,
     })
-    router.push('/post-auth')
+    router.push('/build-your-socrate')
   } catch (error) {
     // Error is handled by the store
   }

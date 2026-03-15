@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import LandingPageView from '../views/LandingPageView.vue'
 import HomeView from '../views/HomeView.vue'
+import { useAuthStore } from '../stores/authStore'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -41,9 +42,10 @@ const router = createRouter({
       component: () => import('../views/OAuthCallbackView.vue')
     },
     {
-      path: '/post-auth',
-      name: 'post-auth',
-      component: () => import('../views/PostAuthView.vue')
+      path: '/build-your-socrate',
+      name: 'build-your-socrate',
+      component: () => import('../views/BuildYourSocrateView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/forgot-password',
@@ -54,11 +56,6 @@ const router = createRouter({
       path: '/reset-password',
       name: 'reset-password',
       component: () => import('../views/ResetPasswordView.vue')
-    },
-    {
-      path: '/live-voice',
-      name: 'live-voice',
-      component: () => import('../views/GeminiLiveVoiceView.vue')
     },
     {
       path: '/document-review',
@@ -81,6 +78,17 @@ const router = createRouter({
       component: () => import('../views/TermsOfServiceView.vue')
     }
   ]
+})
+
+router.beforeEach((to, _from, next) => {
+  const authStore = useAuthStore()
+  const requiresAuth = Boolean((to.meta as { requiresAuth?: boolean }).requiresAuth)
+  const hasAuth = Boolean(authStore.isAuthenticated && authStore.user?.id)
+  if (requiresAuth && !hasAuth) {
+    next({ name: 'login', query: { redirect: to.fullPath } })
+    return
+  }
+  next()
 })
 
 export default router
