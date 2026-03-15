@@ -9,12 +9,84 @@
 
     <canvas ref="splineCanvas" class="spline-bg" :class="{ 'spline-zoom': personalizing }"></canvas>
 
-    <!-- Personalize button over avatar -->
-    <div class="personalize-btn-wrap" :class="{ 'hidden-ui': personalizing }">
+    <!-- Personalize button over avatar (voice sessions only) -->
+    <div class="personalize-btn-wrap" :class="{ 'hidden-ui': personalizing || !isVoiceSession }">
       <button class="personalize-btn" @click="personalizing = true">
         Personalize Me
       </button>
     </div>
+
+    <!-- Personalize overlay: 4 cards around the avatar -->
+    <transition name="personalize">
+      <div v-if="personalizing" class="personalize-overlay">
+
+
+
+        <!-- Top-left: AI Voice -->
+        <div class="p-card top-left">
+          <h3 class="p-card-title">AI Voice</h3>
+          <p class="p-card-desc">Select the vocal tone and accent for your Socratic guide.</p>
+          <div class="p-dropdown-wrapper">
+            <button class="p-dropdown-btn" @click="voiceOpen = !voiceOpen">
+              <span>{{ selectedVoice }}</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div v-if="voiceOpen" class="p-dropdown-menu">
+              <button v-for="v in voices" :key="v" class="p-dropdown-item" :class="{ active: selectedVoice === v }" @click="selectedVoice = v; voiceOpen = false">{{ v }}</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Top-right: Teaching Style -->
+        <div class="p-card top-right">
+          <h3 class="p-card-title">Teaching Style</h3>
+          <p class="p-card-desc">How the AI guides your learning journey.</p>
+          <div class="p-dropdown-wrapper">
+            <button class="p-dropdown-btn" @click="styleOpen = !styleOpen">
+              <span>{{ selectedStyle }}</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div v-if="styleOpen" class="p-dropdown-menu">
+              <button v-for="s in teachingStyles" :key="s" class="p-dropdown-item" :class="{ active: selectedStyle === s }" @click="selectedStyle = s; styleOpen = false">{{ s }}</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom-left: Personality -->
+        <div class="p-card bottom-left">
+          <h3 class="p-card-title">Personality</h3>
+          <p class="p-card-desc">Set the temperament of your AI companion.</p>
+          <div class="p-dropdown-wrapper">
+            <button class="p-dropdown-btn" @click="personalityOpen = !personalityOpen">
+              <span>{{ selectedPersonality }}</span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div v-if="personalityOpen" class="p-dropdown-menu p-dropdown-menu--up">
+              <button v-for="p in personalities" :key="p" class="p-dropdown-item" :class="{ active: selectedPersonality === p }" @click="selectedPersonality = p; personalityOpen = false">{{ p }}</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Save button -->
+        <div class="p-save-wrap">
+          <button class="p-save-btn" @click="personalizing = false">
+            Save Configuration
+          </button>
+        </div>
+
+        <!-- Bottom-right: Dynamic Interruptions -->
+        <div class="p-card bottom-right">
+          <div class="p-card-header-row">
+            <h3 class="p-card-title">Dynamic Interruptions</h3>
+            <button class="p-toggle" :class="{ on: dynamicInterruptions }" @click="dynamicInterruptions = !dynamicInterruptions">
+              <span class="p-toggle-thumb"></span>
+            </button>
+          </div>
+          <p class="p-card-desc">Allow the AI to politely interrupt when you veer off-topic or make a logical fallacy during live voice sessions.</p>
+        </div>
+
+      </div>
+    </transition>
 
     <!-- Left: title + controls -->
     <div class="build-hero" :class="{ 'hidden-ui': personalizing }">
@@ -44,8 +116,8 @@
             </transition>
           </div>
 
-          <!-- Start Live Voice button -->
-          <button class="btn-live">
+          <!-- Start Live Voice button (voice sessions only) -->
+          <button v-if="isVoiceSession" class="btn-live">
             <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="9" y="2" width="6" height="11" rx="3"/>
               <path d="M5 10a7 7 0 0014 0M12 19v3M9 22h6"/>
@@ -57,7 +129,7 @@
     </div>
 
     <!-- Left: session wrapper (panel + tab slide together) -->
-    <div class="session-wrapper" :class="{ hidden: !sessionVisible, 'hidden-ui': personalizing }">
+    <div class="session-wrapper" :class="{ hidden: !sessionVisible || !selectedMode, 'hidden-ui': personalizing }">
       <div class="session-panel">
         <div class="session-header">
           <span class="session-label">Session Details</span>
@@ -67,6 +139,16 @@
             <label class="field-label">Title</label>
             <input v-model="sessionTitle" class="field-input" type="text" placeholder="e.g. Biology Exam Prep" />
           </div>
+          <div class="session-field">
+            <label class="field-label">What do you want to study?</label>
+            <textarea
+              v-model="sessionTopic"
+              class="field-input field-textarea"
+              placeholder="e.g. Chapter 4 of my biology textbook, focusing on cell division..."
+              rows="3"
+            ></textarea>
+          </div>
+
           <div class="session-field">
             <label class="field-label">Files</label>
             <div class="file-drop" :class="{ dragging: isDragging }"
@@ -96,17 +178,19 @@
               </li>
             </ul>
           </div>
-          <div class="session-field">
-            <div class="toggle-row">
-              <div>
-                <span class="field-label">Interruption Mode</span>
-                <p class="field-hint">Allow the AI to interrupt you mid-sentence.</p>
+          <template v-if="isVoiceSession">
+            <div class="session-field">
+              <div class="toggle-row">
+                <div>
+                  <span class="field-label">Interruption Mode</span>
+                  <p class="field-hint">Allow the AI to interrupt you mid-sentence.</p>
+                </div>
+                <button class="toggle" :class="{ on: interruptionMode }" @click="interruptionMode = !interruptionMode">
+                  <span class="toggle-thumb"></span>
+                </button>
               </div>
-              <button class="toggle" :class="{ on: interruptionMode }" @click="interruptionMode = !interruptionMode">
-                <span class="toggle-thumb"></span>
-              </button>
             </div>
-          </div>
+          </template>
         </div>
       </div>
       <!-- Tab attached to right edge of wrapper -->
@@ -118,7 +202,7 @@
     </div>
 
     <!-- Right: transcript + fallback wrapper (both slide together) -->
-    <div class="transcript-wrapper" :class="{ hidden: !transcriptVisible, 'hidden-ui': personalizing }">
+    <div class="transcript-wrapper" :class="{ hidden: !transcriptVisible || !selectedMode, 'hidden-ui': personalizing }">
       <!-- Tab attached to left edge of wrapper -->
       <button class="panel-tab" @click="transcriptVisible = !transcriptVisible">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -128,15 +212,15 @@
       <div class="right-panels">
         <div class="transcript-panel">
           <div class="transcript-header">
-            <span class="transcript-label">Transcript</span>
-            <span class="transcript-status" :class="{ active: messages.length > 0 }">
+            <span class="transcript-label">{{ isVoiceSession ? 'Transcript' : 'Chat' }}</span>
+            <span v-if="isVoiceSession" class="transcript-status" :class="{ active: messages.length > 0 }">
               <span class="status-dot"></span>
               {{ messages.length > 0 ? 'Live' : 'Waiting...' }}
             </span>
           </div>
           <div class="transcript-body" ref="transcriptBody">
             <div v-if="messages.length === 0" class="transcript-empty">
-              Your conversation will appear here once the session starts.
+              {{ isVoiceSession ? 'Your conversation will appear here once the session starts.' : 'Start a conversation with your AI tutor.' }}
             </div>
             <div v-for="(msg, i) in messages" :key="i" class="transcript-msg" :class="msg.role">
               <span class="msg-role">{{ msg.role === 'user' ? 'You' : 'Socratica' }}</span>
@@ -160,7 +244,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, nextTick } from 'vue'
+import { onMounted, onUnmounted, ref, nextTick, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Application } from '@splinetool/runtime'
 
@@ -168,6 +252,9 @@ const router = useRouter()
 
 const splineCanvas = ref<HTMLCanvasElement | null>(null)
 let splineApp: Application | null = null
+
+const voiceSessions = ['Presentation Prep', 'Socratic Evaluation', 'Interview Prep']
+const isVoiceSession = computed(() => voiceSessions.includes(selectedMode.value))
 
 const dropdownOpen = ref(false)
 const selectedMode = ref('')
@@ -189,12 +276,29 @@ const sessionVisible = ref(true)
 const transcriptVisible = ref(true)
 const personalizing = ref(false)
 
+// Personalize options
+const voiceOpen = ref(false)
+const styleOpen = ref(false)
+const personalityOpen = ref(false)
+const selectedVoice = ref('Marcus (Authoritative)')
+const selectedStyle = ref('Socratic Method')
+const selectedPersonality = ref('Analytical & Precise')
+const dynamicInterruptions = ref(true)
+const voices = ['Marcus (Authoritative)', 'Sophia (Warm)', 'Atlas (Deep)', 'Nova (Bright)']
+const teachingStyles = ['Socratic Method', 'Direct Instruction', 'Debate Partner', 'Gentle Guide']
+const personalities = ['Analytical & Precise', 'Empathetic & Patient', 'Challenging & Direct', 'Enthusiastic']
+
 function handleEscape(e: KeyboardEvent) {
   if (e.key === 'Escape') personalizing.value = false
 }
 
+watch(isVoiceSession, (isVoice) => {
+  if (!isVoice) personalizing.value = false
+})
+
 // Session details
 const sessionTitle = ref('')
+const sessionTopic = ref('')
 const uploadedFiles = ref<File[]>([])
 const isDragging = ref(false)
 const interruptionMode = ref(false)
@@ -392,7 +496,7 @@ onUnmounted(() => {
   top: 52%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 5;
+  z-index: 4;
   pointer-events: all;
 }
 
@@ -425,7 +529,7 @@ onUnmounted(() => {
 /* Hero (left-center) */
 .build-hero {
   position: relative;
-  z-index: 1;
+  z-index: 10;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -551,7 +655,7 @@ onUnmounted(() => {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
   overflow: hidden;
-  z-index: 100;
+  z-index: 200;
   min-width: 220px;
   backdrop-filter: blur(12px);
 }
@@ -898,6 +1002,12 @@ onUnmounted(() => {
   transition: border-color 0.2s ease;
 }
 
+.field-textarea {
+  resize: none;
+  line-height: 1.6;
+  min-height: 80px;
+}
+
 .field-input::placeholder {
   color: rgba(247, 247, 242, 0.25);
 }
@@ -1109,6 +1219,201 @@ onUnmounted(() => {
 .fallback-send svg {
   width: 15px;
   height: 15px;
+}
+
+/* Personalize overlay */
+.personalize-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+  pointer-events: none;
+}
+
+.personalize-enter-active,
+.personalize-leave-active {
+  transition: opacity 0.5s ease;
+}
+.personalize-enter-from,
+.personalize-leave-to {
+  opacity: 0;
+}
+
+/* Save button */
+.p-save-wrap {
+  position: absolute;
+  bottom: 6%;
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: all;
+}
+
+.p-save-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.85rem 2.5rem;
+  border-radius: 9999px;
+  background: #F7F7F2;
+  color: #000000;
+  border: none;
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: transform 180ms ease, box-shadow 220ms ease;
+}
+
+.p-save-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.4);
+}
+
+/* Cards */
+.p-card {
+  position: absolute;
+  width: 300px;
+  background: rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 20px;
+  padding: 1rem 1.2rem;
+  pointer-events: all;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.top-left    { top: 24%;    left: 24%; }
+.top-right   { top: 24%;    right: 24%; }
+.bottom-left { bottom: 18%; left: 18%; }
+.bottom-right{ bottom: 18%; right: 18%; }
+
+.p-card-title {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(247, 247, 242, 0.9);
+  margin: 0;
+  letter-spacing: 0.03em;
+}
+
+.p-card-desc {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.75rem;
+  color: rgba(247, 247, 242, 0.4);
+  margin: 0 0 0.4rem;
+  line-height: 1.5;
+}
+
+.p-card-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* Personalize dropdowns */
+.p-dropdown-wrapper {
+  position: relative;
+}
+
+.p-dropdown-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.55rem 0.85rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+  color: rgba(247, 247, 242, 0.85);
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.82rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+.p-dropdown-btn:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.p-dropdown-btn svg {
+  width: 14px;
+  height: 14px;
+  color: rgba(247, 247, 242, 0.4);
+  flex-shrink: 0;
+}
+
+.p-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  overflow: hidden;
+  z-index: 50;
+}
+
+.p-dropdown-menu--up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
+.p-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 0.65rem 0.85rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: rgba(247, 247, 242, 0.7);
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.p-dropdown-item:last-child { border-bottom: none; }
+.p-dropdown-item:hover { background: rgba(255, 255, 255, 0.06); color: #F7F7F2; }
+.p-dropdown-item.active { color: rgba(247, 247, 242, 0.95); }
+
+/* Personalize toggle */
+.p-toggle {
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.25s ease, border-color 0.25s ease;
+}
+
+.p-toggle.on {
+  background: rgba(247, 247, 242, 0.85);
+  border-color: transparent;
+}
+
+.p-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(247, 247, 242, 0.45);
+  transition: transform 0.25s ease, background 0.25s ease;
+}
+
+.p-toggle.on .p-toggle-thumb {
+  transform: translateX(18px);
+  background: #000;
 }
 
 @keyframes fadeSlideIn {
