@@ -18,7 +18,8 @@ services:
       SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI:-mongodb://mongo:27017/socratica_dev}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-socratica_dev}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_LIVE_MODEL: ${GEMINI_LIVE_MODEL:-gemini-live-2.5-flash-preview}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_LIVE_MODEL: ${GEMINI_LIVE_MODEL:-gemini-live-2.5-flash-native-audio}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}

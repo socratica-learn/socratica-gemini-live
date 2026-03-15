@@ -182,7 +182,8 @@ These endpoints use Gemini through `AiService`.
 Required environment variables:
 
 - `GEMINI_API_KEY` (backend only)
-- `GEMINI_MODEL` (optional, default: `gemini-1.5-flash`)
+- `GEMINI_MODEL` (optional, default: `gemini-3-flash-preview`)
+- `GEMINI_LIVE_MODEL` (optional, default: `gemini-live-2.5-flash-native-audio`)
 
 Docker (backend service):
 

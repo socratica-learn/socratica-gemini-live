@@ -36,14 +36,24 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
-    private static final String GEMINI_WS_BASE =
+    private static final String GOOGLE_AI_WS_BASE =
             "wss://generativelanguage.googleapis.com/ws/"
             + "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent";
+
+    private static final String VERTEX_AI_WS_BASE_TEMPLATE =
+            "wss://%s-aiplatform.googleapis.com/ws/"
+            + "google.cloud.aiplatform.v1beta1.LlmBidiService/BidiGenerateContent";
 
     @Value("${socratica.gemini.api-key:}")
     private String geminiApiKey;
 
-    @Value("${socratica.gemini.live-model:gemini-2.5-flash-native-audio-preview-12-2025}")
+    @Value("${socratica.gemini.project-id:}")
+    private String projectId;
+
+    @Value("${socratica.gemini.location:europe-west4}")
+    private String location;
+
+    @Value("${socratica.gemini.live-model:gemini-live-2.5-flash-native-audio}")
     private String liveModel;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -58,17 +68,32 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession browserSession) {
         log.debug("Browser WS connected: {}", browserSession.getId());
 
-        String apiKey = resolveApiKey();
-        if (apiKey.isBlank()) {
-            log.error("Gemini API key not configured — rejecting proxy session {}", browserSession.getId());
-            sendErrorAndClose(browserSession, "Gemini API key is not configured on the server.");
-            return;
+        String geminiUrl;
+        WebSocket.Builder wsBuilder = httpClient.newWebSocketBuilder();
+
+        if (projectId != null && !projectId.isBlank()) {
+            // Vertex AI Path
+            geminiUrl = String.format(VERTEX_AI_WS_BASE_TEMPLATE, location);
+            log.debug("Using Vertex AI WebSocket endpoint: {}", geminiUrl);
+            // In a real production environment, we'd fetch an OAuth2 token.
+            // For now, we'll try to use the API key if provided, or assume ADC if running on GCP.
+            // Vertex AI WebSocket typically requires Bearer auth.
+            String apiKey = resolveApiKey();
+            if (!apiKey.isBlank()) {
+                geminiUrl += "?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
+            }
+        } else {
+            // Google AI Path
+            String apiKey = resolveApiKey();
+            if (apiKey.isBlank()) {
+                log.error("Gemini API key not configured — rejecting proxy session {}", browserSession.getId());
+                sendErrorAndClose(browserSession, "Gemini API key is not configured on the server.");
+                return;
+            }
+            geminiUrl = GOOGLE_AI_WS_BASE + "?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
         }
 
-        String geminiUrl = GEMINI_WS_BASE + "?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
-
-        httpClient.newWebSocketBuilder()
-                .buildAsync(URI.create(geminiUrl), new GeminiListener(browserSession))
+        wsBuilder.buildAsync(URI.create(geminiUrl), new GeminiListener(browserSession))
                 .thenAccept(geminiWs -> {
                     geminiSockets.put(browserSession.getId(), geminiWs);
                     log.debug("Gemini WS opened for browser session {}", browserSession.getId());

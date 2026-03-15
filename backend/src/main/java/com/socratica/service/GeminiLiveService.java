@@ -37,7 +37,13 @@ public class GeminiLiveService {
     @Value("${socratica.gemini.api-key:}")
     private String geminiApiKey;
 
-    @Value("${socratica.gemini.live-model:gemini-2.5-flash-native-audio-preview-12-2025}")
+    @Value("${socratica.gemini.project-id:}")
+    private String projectId;
+
+    @Value("${socratica.gemini.location:europe-west4}")
+    private String location;
+
+    @Value("${socratica.gemini.live-model:gemini-live-2.5-flash-native-audio}")
     private String liveModel;
 
     @Value("${socratica.gemini.model:gemini-2.5-flash}")

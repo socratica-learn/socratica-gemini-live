@@ -21,14 +21,30 @@ public class GeminiClientConfig {
     @Value("${socratica.gemini.api-key:}")
     private String geminiApiKey;
 
+    @Value("${socratica.gemini.project-id:}")
+    private String projectId;
+
+    @Value("${socratica.gemini.location:europe-west4}")
+    private String location;
+
     @Bean
     public Client geminiClient() {
+        if (projectId != null && !projectId.isBlank()) {
+            log.info("Initializing Gemini Client with Vertex AI: project={}, location={}", projectId, location);
+            return Client.builder()
+                    .vertexAI(true)
+                    .project(projectId)
+                    .location(location)
+                    .build();
+        }
+
         String key = resolveKey();
         if (key.isBlank()) {
             log.warn("Gemini API key is not configured — AI features will fail at runtime. "
                     + "Set GEMINI_API_KEY or socratica.gemini.api-key.");
             return Client.builder().apiKey("missing-gemini-api-key").build();
         }
+        log.info("Initializing Gemini Client with Google AI (API Key)");
         return Client.builder().apiKey(key).build();
     }
 
