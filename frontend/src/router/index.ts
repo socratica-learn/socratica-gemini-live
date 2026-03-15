@@ -61,6 +61,11 @@ const router = createRouter({
       component: () => import('../views/GeminiLiveVoiceView.vue')
     },
     {
+      path: '/build-your-socrate',
+      name: 'build-your-socrate',
+      component: () => import('../views/BuildYourSocrateView.vue')
+    },
+    {
       path: '/privacy-policy',
       name: 'privacy-policy',
       component: () => import('../views/PrivacyPolicyView.vue')
