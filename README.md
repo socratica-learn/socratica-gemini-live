@@ -67,12 +67,19 @@ Traditional studying often lacks the interactive element of having someone to di
 
 
 ### Prerequisites
+- Docker & Docker Compose
+
+OR
+
 - Java 17 or higher
 - Node.js 18+ and npm/yarn
 - MongoDB 7+
-- Docker
+
 
 ### Docker Setup – Recommended
+
+For testing the project locally, it is recommended to use Docker Compose.
+
 ```bash
 docker-compose up -d
 ```
