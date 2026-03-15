@@ -112,6 +112,19 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- WebSocket support for Gemini Live proxy -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
+
+        <!-- Google Gen AI Java SDK -->
+        <dependency>
+            <groupId>com.google.genai</groupId>
+            <artifactId>google-genai</artifactId>
+            <version>1.43.0</version>
+        </dependency>
+
         <!-- Spring Mail for email sending -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

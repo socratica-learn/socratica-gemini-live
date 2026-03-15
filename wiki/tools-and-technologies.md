@@ -67,15 +67,10 @@ This page documents all the tools, frameworks, and technologies used in the Socr
   - Purpose: Semantic search for notes and study materials
 
 ### AI & Machine Learning
-- **OpenAI API**
-  - GPT-4 for conversational AI and Socratic questioning
-  - Whisper for speech-to-text
-  - TTS for text-to-speech
-  - Website: https://platform.openai.com/
-
-- **Anthropic Claude API** (Optional)
-  - Alternative LLM for nuanced questioning
-  - Website: https://www.anthropic.com/
+- **Gemini GenAI SDK**
+  - Gemini 2.5 Flash for conversational AI and Socratic questioning
+  - Gemini Live for speech-to-text
+  - Gemini Live for text-to-speech
 
 ### Build Tools
 - **Maven** or **Gradle**
@@ -356,10 +351,10 @@ This page documents all the tools, frameworks, and technologies used in the Socr
 - All team members should have access to the Google Drive folder
 - Figma access should be requested from the design lead
 - GitLab repository access is managed by project owners (Mara, Maria)
-- API keys for OpenAI and other services will be managed securely via environment variables
+- API keys for Gemini and other services will be managed securely via environment variables
 
 ---
 
-**Last Updated**: October 28, 2025  
-**Maintained By**: Mara & Maria
+**Last Updated**: March 15, 2026
+**Maintained By**: Mara & Maria & Alex
 

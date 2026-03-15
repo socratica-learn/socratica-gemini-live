@@ -37,7 +37,7 @@
             <ul class="text-gray-700 text-sm space-y-1">
               <li>Java 17 + Spring Boot</li>
               <li>PostgreSQL Database</li>
-              <li>OpenAI API Integration</li>
+              <li>Gemini API Integration</li>
               <li>JWT Authentication</li>
             </ul>
           </div>

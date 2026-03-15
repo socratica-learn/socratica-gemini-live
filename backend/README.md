@@ -10,7 +10,7 @@ Spring Boot backend application for the Socratica AI-powered study assistant.
 - **Maven**
 - **Spring Security** (JWT Authentication)
 - **Spring Data JPA**
-- **OpenAI API Integration**
+- **Gemini API Integration**
 
 ## Getting Started
 
@@ -34,7 +34,6 @@ GRANT ALL PRIVILEGES ON DATABASE socratica_dev TO socratica_user;
 DATABASE_URL=jdbc:postgresql://localhost:5432/socratica_dev
 DATABASE_USER=socratica_user
 DATABASE_PASSWORD=your_password
-OPENAI_API_KEY=your_openai_api_key
 JWT_SECRET=your_jwt_secret_key
 ```
 
@@ -111,7 +110,6 @@ backend/
 | `DATABASE_URL` | PostgreSQL connection URL | Yes |
 | `DATABASE_USER` | Database username | Yes |
 | `DATABASE_PASSWORD` | Database password | Yes |
-| `OPENAI_API_KEY` | OpenAI API key | Yes |
 | `JWT_SECRET` | Secret key for JWT tokens | Yes |
 | `JWT_EXPIRATION` | JWT token expiration (ms) | No (default: 3600000) |
 
