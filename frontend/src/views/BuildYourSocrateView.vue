@@ -118,6 +118,7 @@
 
           <!-- Start / Stop Live Voice button -->
           <button
+            v-if="isVoiceSession"
             class="btn-live"
             :class="{ 'btn-live-active': isConnected }"
             :disabled="isBusy"
@@ -196,13 +197,10 @@
                   <span class="field-label">Interruption Mode</span>
                   <p class="field-hint">Allow the AI to interrupt you mid-sentence.</p>
                 </div>
-                <button class="toggle" :class="{ on: interruptionMode }" @click="interruptionMode = !interruptionMode">
+                <button class="toggle" :class="{ on: interruptingModeEnabled }" @click="toggleInterruptingMode">
                   <span class="toggle-thumb"></span>
                 </button>
               </div>
-              <button class="toggle" :class="{ on: interruptingModeEnabled }" @click="toggleInterruptingMode">
-                <span class="toggle-thumb"></span>
-              </button>
             </div>
           </template>
         </div>
@@ -345,9 +343,25 @@ const modeOptions = [
   'Notes & Summaries',
 ]
 
+const voiceSessions = ['Presentation Prep', 'Socratic Evaluation', 'Interview Prep']
+const isVoiceSession = computed(() => voiceSessions.includes(selectedMode.value))
+
 const sessionVisible = ref(true)
 const transcriptVisible = ref(true)
 const personalizing = ref(false)
+
+// ─── Personalization refs ─────────────────────────────────────────────────────
+
+const voiceOpen = ref(false)
+const styleOpen = ref(false)
+const personalityOpen = ref(false)
+const selectedVoice = ref('Marcus (Authoritative)')
+const selectedStyle = ref('Socratic Method')
+const selectedPersonality = ref('Analytical & Precise')
+const dynamicInterruptions = ref(true)
+const voices = ['Marcus (Authoritative)', 'Sophia (Warm)', 'Atlas (Deep)', 'Nova (Bright)']
+const teachingStyles = ['Socratic Method', 'Direct Instruction', 'Debate Partner', 'Gentle Guide']
+const personalities = ['Analytical & Precise', 'Empathetic & Patient', 'Challenging & Direct', 'Enthusiastic']
 
 const sessionTitle = ref('')
 const sessionTopic = ref('')
@@ -510,7 +524,7 @@ const addUserEntry = (text: string) => {
 
 const buildTutorPrompt = () => {
   const mode = selectedMode.value || 'Socratic Evaluation'
-  const topic = sessionTitle.value.trim() || 'the chosen subject'
+  const topic = sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
 
   const interruptBehavior = interruptingModeEnabled.value
     ? [
@@ -573,6 +587,10 @@ watch(interruptingModeEnabled, (newValue) => {
       turnComplete: true,
     })
   } catch { /* ignore if session not ready */ }
+})
+
+watch(isVoiceSession, (isVoice) => {
+  if (!isVoice) personalizing.value = false
 })
 
 // ─── isModelSpeaking watcher ──────────────────────────────────────────────────
@@ -1118,7 +1136,7 @@ const startLiveSession = async () => {
 
     // Kick off the conversation.
     const mode = selectedMode.value || 'Socratic Evaluation'
-    const topic = sessionTitle.value.trim() || 'the chosen subject'
+    const topic = sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
     session.sendClientContent({
       turns: [{
         role: 'user',
@@ -1677,6 +1695,12 @@ onBeforeUnmount(() => {
 
 .field-input::placeholder { color: rgba(247, 247, 242, 0.25); }
 .field-input:focus { border-color: rgba(255, 255, 255, 0.25); }
+
+.field-textarea {
+  resize: none;
+  min-height: 80px;
+  line-height: 1.5;
+}
 
 .file-drop {
   display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
