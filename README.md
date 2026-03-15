@@ -62,49 +62,20 @@ Traditional studying often lacks the interactive element of having someone to di
 - **CI/CD**: GitLab CI/CD
 - **Containerization**: Docker
 - **Orchestration**: Docker Compose (dev), Kubernetes (production)
-- **Monitoring**: Prometheus, Grafana
-
-## 📁 Project Structure
-
-```
-socratica/
-├── backend/              # Java Spring Boot application
-│   ├── src/
-│   │   ├── main/
-│   │   │   ├── java/
-│   │   │   └── resources/
-│   │   └── test/
-│   ├── pom.xml
-│   └── Dockerfile
-│
-├── frontend/             # Vue 3 application
-│   ├── src/
-│   │   ├── components/
-│   │   ├── views/
-│   │   ├── router/
-│   │   ├── stores/
-│   │   └── assets/
-│   ├── package.json
-│   └── Dockerfile
-│
-├── docs/                 # Documentation
-│   ├── requirements/
-│   ├── architecture/
-│   ├── api/
-│   └── user-guide/
-│
-├── .gitlab-ci.yml       # CI/CD pipeline
-├── docker-compose.yml   # Development environment
-└── README.md
-```
 
 ## 🏁 Getting Started
+
 
 ### Prerequisites
 - Java 17 or higher
 - Node.js 18+ and npm/yarn
 - MongoDB 7+
-- Docker (optional, for containerized development)
+- Docker
+
+### Docker Setup – Recommended
+```bash
+docker-compose up -d
+```
 
 ### Backend Setup
 ```bash
@@ -120,26 +91,6 @@ npm install
 npm run dev
 ```
 
-### Docker Setup
-```bash
-docker-compose up -d
-```
-
-### Live Voice Tutor Setup
-1. Copy `.env.example` to `.env`
-2. Fill in backend `GEMINI_API_KEY` only
-3. Start the local stack:
-```bash
-pwsh ./scripts/start-local-live-tutor.ps1
-```
-4. Start the frontend:
-```bash
-cd frontend
-npm run dev
-```
-5. Open `http://localhost:5173/live-voice`
-
-The live tutor page uses Gemini Live with short-lived backend-minted session tokens, keeps `GEMINI_API_KEY` on the backend only, and saves tutor session history to MongoDB.
 
 ## 📋 Development Workflow
 
@@ -165,6 +116,7 @@ The live tutor page uses Gemini Live with short-lived backend-minted session tok
 
 - **Mara** - Project Lead & Full Stack Developer
 - **Maria** - Co-Owner & Developer
+- **Alex** - Full Stack Developer
 
 ## 📝 Contributing
 
@@ -179,31 +131,6 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduc
 - **Wiki**: Technical documentation and guides
 - **Time Tracking**: Estimate and log time spent on issues
 
-## 🎯 Current Milestone: MVP (v0.1.0)
-
-### Phase 1: Foundation
-- [ ] Define functional and non-functional requirements
-- [ ] Create system architecture design
-- [ ] Design UI/UX prototypes in Stitch
-- [ ] Set up development environment
-- [ ] Configure CI/CD pipeline
-
-### Phase 2: Core Features
-- [ ] User authentication and authorization
-- [ ] Basic study session interface
-- [ ] AI integration for Socratic questioning
-- [ ] Voice input/output implementation
-- [ ] Note upload and processing
-
-### Phase 3: Enhanced Features
-- [ ] Quiz generation system
-- [ ] Note summarization
-- [ ] Progress tracking dashboard
-- [ ] Study planning tools
-
-## 📜 License
-
-This project is proprietary. All rights reserved.
 
 ## 📞 Support
 
