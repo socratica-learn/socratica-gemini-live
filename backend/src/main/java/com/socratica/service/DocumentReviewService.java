@@ -2,19 +2,12 @@ package com.socratica.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.genai.Client;
+import com.google.genai.types.GenerateContentConfig;
+import com.google.genai.types.GenerateContentResponse;
 import com.socratica.dto.DocumentReviewResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hc.client5.http.classic.methods.HttpPost;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.core5.http.ContentType;
-import org.apache.hc.core5.http.ParseException;
-import org.apache.hc.core5.http.io.entity.EntityUtils;
-import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -55,9 +48,7 @@ import java.util.Map;
 public class DocumentReviewService {
 
     private final ObjectMapper objectMapper;
-
-    @Value("${socratica.gemini.api-key:}")
-    private String geminiApiKey;
+    private final Client geminiClient;
 
     @Value("${socratica.gemini.model:gemini-2.5-flash}")
     private String geminiModel;
@@ -216,52 +207,18 @@ public class DocumentReviewService {
     }
 
     private String callGemini(String prompt) {
-        String apiKey = resolveApiKey();
-        if (apiKey.isBlank()) {
-            throw new RuntimeException("Gemini API key not configured");
-        }
-
-        String url = String.format(
-            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-            geminiModel,
-            apiKey
-        );
-
-        ObjectNode body = objectMapper.createObjectNode();
-        ArrayNode contents = body.putArray("contents");
-        ObjectNode content = contents.addObject();
-        ArrayNode parts = content.putArray("parts");
-        parts.addObject().put("text", prompt);
-
-        // Ask Gemini to respond with JSON
-        ObjectNode generationConfig = body.putObject("generationConfig");
-        generationConfig.put("responseMimeType", "application/json");
-
-        HttpPost request = new HttpPost(url);
-        request.setHeader("Content-Type", "application/json");
-        request.setEntity(new StringEntity(body.toString(), ContentType.APPLICATION_JSON));
-
-        try (CloseableHttpClient client = HttpClients.createDefault();
-             CloseableHttpResponse response = client.execute(request)) {
-            int status = response.getCode();
-            String responseBody = EntityUtils.toString(response.getEntity());
-
-            if (status >= 300) {
-                log.warn("Gemini API error {}: {}", status, responseBody);
-                throw new RuntimeException("Gemini API error: " + status);
+        try {
+            GenerateContentConfig config = GenerateContentConfig.builder()
+                    .responseMimeType("application/json")
+                    .build();
+            GenerateContentResponse response = geminiClient.models.generateContent(geminiModel, prompt, config);
+            String text = response.text();
+            if (text == null) {
+                throw new RuntimeException("Unexpected empty response from Gemini");
             }
-
-            JsonNode root = objectMapper.readTree(responseBody);
-            JsonNode textNode = root
-                .path("candidates").path(0)
-                .path("content").path("parts").path(0)
-                .path("text");
-
-            if (textNode.isMissingNode()) {
-                throw new RuntimeException("Unexpected Gemini response structure");
-            }
-            return textNode.asText();
-        } catch (IOException | ParseException e) {
+            return text;
+        } catch (Exception e) {
+            log.error("Gemini API call failed: {}", e.getMessage());
             throw new RuntimeException("Failed to call Gemini API", e);
         }
     }
@@ -303,14 +260,6 @@ public class DocumentReviewService {
             node.forEach(item -> list.add(item.asText()));
         }
         return list;
-    }
-
-    private String resolveApiKey() {
-        if (geminiApiKey != null && !geminiApiKey.isBlank()) {
-            return geminiApiKey;
-        }
-        String env = System.getenv("VITE_GEMINI_API_KEY");
-        return env == null ? "" : env.trim();
     }
 
     private String extractExtension(String filename) {

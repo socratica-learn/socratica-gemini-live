@@ -2,8 +2,11 @@ package com.socratica.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.genai.Client;
+import com.google.genai.types.Content;
+import com.google.genai.types.GenerateContentResponse;
+import com.google.genai.types.Part;
 import com.socratica.dto.LiveSessionTokenResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +30,9 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 public class GeminiLiveService {
+
     private final ObjectMapper objectMapper;
+    private final Client geminiClient;
 
     @Value("${socratica.gemini.api-key:}")
     private String geminiApiKey;
@@ -38,6 +43,10 @@ public class GeminiLiveService {
     @Value("${socratica.gemini.model:gemini-2.5-flash}")
     private String geminiModel;
 
+    /**
+     * Mints a short-lived Gemini Live session token via the v1alpha auth endpoint.
+     * This uses a direct HTTP call because the Java SDK does not expose this endpoint.
+     */
     public LiveSessionTokenResponse createSessionToken() {
         String apiKey = resolveGeminiApiKey();
         if (apiKey.isBlank()) {
@@ -71,8 +80,8 @@ public class GeminiLiveService {
 
                     if (status >= 300) {
                         String endpointName = url.contains("authTokens") ? "authTokens" : "auth_tokens";
-                        String compactResponseBody = responseBody.replaceAll("\\s+", " ").trim();
-                        log.warn("Gemini Live token endpoint {} failed with {}: {}", endpointName, status, compactResponseBody);
+                        log.warn("Gemini Live token endpoint {} failed with {}: {}",
+                                endpointName, status, responseBody.replaceAll("\\s+", " ").trim());
                         continue;
                     }
 
@@ -92,56 +101,26 @@ public class GeminiLiveService {
         throw new RuntimeException("Failed to create Gemini Live session token");
     }
 
+    /**
+     * Transcribes audio bytes using the Gemini SDK with multimodal content.
+     */
     public String transcribeAudio(byte[] audioBytes, String mimeType) {
-        String apiKey = resolveGeminiApiKey();
-        if (apiKey.isBlank()) {
-            throw new RuntimeException("Gemini API key not configured");
-        }
-
         if (audioBytes == null || audioBytes.length == 0) {
             return "";
         }
 
         String normalizedMimeType = (mimeType == null || mimeType.isBlank()) ? "audio/wav" : mimeType;
-        String url = String.format(
-            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-            geminiModel,
-            URLEncoder.encode(apiKey, StandardCharsets.UTF_8)
-        );
 
-        ObjectNode body = objectMapper.createObjectNode();
-        ArrayNode contents = body.putArray("contents");
-        ObjectNode content = contents.addObject();
-        ArrayNode parts = content.putArray("parts");
-        parts.addObject().put("text", "Transcribe this audio exactly. Return only the transcript text with no labels or commentary.");
-        ObjectNode inlineData = parts.addObject().putObject("inlineData");
-        inlineData.put("mimeType", normalizedMimeType);
-        inlineData.put("data", java.util.Base64.getEncoder().encodeToString(audioBytes));
-
-        HttpPost request = new HttpPost(url);
-        request.setHeader("Content-Type", "application/json");
-        request.setEntity(new StringEntity(body.toString(), ContentType.APPLICATION_JSON));
-
-        try (CloseableHttpClient client = HttpClients.createDefault();
-             CloseableHttpResponse response = client.execute(request)) {
-            int status = response.getCode();
-            String responseBody = EntityUtils.toString(response.getEntity());
-
-            if (status >= 300) {
-                log.warn("Gemini transcription failed with {}: {}", status, responseBody.replaceAll("\\s+", " ").trim());
-                throw new RuntimeException("Gemini transcription failed with status " + status);
-            }
-
-            JsonNode root = objectMapper.readTree(responseBody);
-            return root.path("candidates")
-                .path(0)
-                .path("content")
-                .path("parts")
-                .path(0)
-                .path("text")
-                .asText("")
-                .trim();
+        try {
+            Content content = Content.fromParts(
+                Part.fromText("Transcribe this audio exactly. Return only the transcript text with no labels or commentary."),
+                Part.fromBytes(audioBytes, normalizedMimeType)
+            );
+            GenerateContentResponse response = geminiClient.models.generateContent(geminiModel, content, null);
+            String text = response.text();
+            return text != null ? text.trim() : "";
         } catch (Exception e) {
+            log.error("Gemini transcription failed: {}", e.getMessage());
             throw new RuntimeException("Failed to transcribe audio", e);
         }
     }
@@ -150,7 +129,6 @@ public class GeminiLiveService {
         if (geminiApiKey != null && !geminiApiKey.isBlank()) {
             return geminiApiKey;
         }
-
         String viteGeminiApiKey = System.getenv("VITE_GEMINI_API_KEY");
         return viteGeminiApiKey == null ? "" : viteGeminiApiKey.trim();
     }

@@ -1,9 +1,7 @@
 package com.socratica.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.genai.Client;
+import com.google.genai.types.GenerateContentResponse;
 import com.socratica.dto.AiResponse;
 import com.socratica.dto.JobPreparationCoverLetterRequest;
 import com.socratica.dto.JobPreparationCvRequest;
@@ -16,13 +14,6 @@ import com.socratica.dto.TeachingAdviceRequest;
 import com.socratica.dto.WrittenEvaluationRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.hc.client5.http.classic.methods.HttpPost;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
-import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
-import org.apache.hc.client5.http.impl.classic.HttpClients;
-import org.apache.hc.core5.http.ContentType;
-import org.apache.hc.core5.http.io.entity.StringEntity;
-import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -30,12 +21,10 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 @Slf4j
 public class AiService {
-    private final ObjectMapper objectMapper;
 
-    @Value("${socratica.gemini.api-key:}")
-    private String geminiApiKey;
+    private final Client geminiClient;
 
-    @Value("${socratica.gemini.model:gemini-1.5-flash}")
+    @Value("${socratica.gemini.model:gemini-2.5-flash}")
     private String geminiModel;
 
     public AiResponse generateWrittenEvaluation(String type, WrittenEvaluationRequest request) {
@@ -139,58 +128,17 @@ public class AiService {
     }
 
     private String generateContent(String prompt) {
-        String apiKey = resolveGeminiApiKey();
-        if (apiKey.isBlank()) {
-            throw new RuntimeException("Gemini API key not configured");
-        }
-
-        String url = String.format(
-            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-            geminiModel,
-            apiKey
-        );
-
-        ObjectNode body = objectMapper.createObjectNode();
-        ArrayNode contents = body.putArray("contents");
-        ObjectNode content = contents.addObject();
-        ArrayNode parts = content.putArray("parts");
-        parts.addObject().put("text", prompt);
-
-        HttpPost request = new HttpPost(url);
-        request.setHeader("Content-Type", "application/json");
-        request.setEntity(new StringEntity(body.toString(), ContentType.APPLICATION_JSON));
-
-        try (CloseableHttpClient client = HttpClients.createDefault();
-             CloseableHttpResponse response = client.execute(request)) {
-            int status = response.getCode();
-            String responseBody = EntityUtils.toString(response.getEntity());
-
-            if (status >= 300) {
-                log.warn("Gemini API error {}: {}", status, responseBody);
-                throw new RuntimeException("Gemini API error: " + status);
-            }
-
-            JsonNode root = objectMapper.readTree(responseBody);
-            JsonNode textNode = root.path("candidates").path(0).path("content").path("parts").path(0).path("text");
-            return textNode.isMissingNode() ? "" : textNode.asText();
+        try {
+            GenerateContentResponse response = geminiClient.models.generateContent(geminiModel, prompt, null);
+            String text = response.text();
+            return text != null ? text : "";
         } catch (Exception e) {
+            log.error("Gemini generateContent failed: {}", e.getMessage());
             throw new RuntimeException("Failed to call Gemini API", e);
         }
     }
 
-    private String resolveGeminiApiKey() {
-        if (geminiApiKey != null && !geminiApiKey.isBlank()) {
-            return geminiApiKey;
-        }
-
-        String viteGeminiApiKey = System.getenv("VITE_GEMINI_API_KEY");
-        return viteGeminiApiKey == null ? "" : viteGeminiApiKey.trim();
-    }
-
     private String nullToDefault(String value, String defaultValue) {
-        if (value == null || value.isBlank()) {
-            return defaultValue;
-        }
-        return value;
+        return (value == null || value.isBlank()) ? defaultValue : value;
     }
 }
