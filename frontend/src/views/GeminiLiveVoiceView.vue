@@ -464,6 +464,11 @@ let accumulatedRecognitionText = ''
 // she receives a meaningful clause (not a single word) for semantic evaluation.
 let onModeBuffer = ''
 let onModeFlushTimer: ReturnType<typeof setTimeout> | null = null
+// After an immediate-send (word-count threshold hit), hold off sending more
+// clauses for this window so Gemini has time to start responding before new
+// user speech cancels its processing via sendClientContent again.
+let onModeResponseWindowTimer: ReturnType<typeof setTimeout> | null = null
+let onModeAwaitingResponse = false
 // Set to true when the user's mic audio interrupts Socratica mid-speech.
 // Used to skip the 600 ms echo-decay delay and restart recognition immediately
 // so the user's interruption appears in the live transcript right away.
@@ -490,12 +495,17 @@ const SILENCE_CHUNKS_INTERRUPTING_OFF = 24  // ≈ 2 s
 // evaluates intent and context, not a single isolated word.
 // 1000 ms strikes a balance: reactive enough to feel live, patient enough that
 // natural mid-sentence pauses don't trigger a premature interruption.
-const ON_MODE_FLUSH_DELAY_MS = 1000
+const ON_MODE_FLUSH_DELAY_MS = 500
 
 // ON mode: minimum number of words a flushed clause must contain before it is
 // sent to Gemini. Fillers ("um", "so", "like") and single-word fragments give
 // Gemini too little context to make a good interruption decision.
 const ON_MODE_MIN_WORDS = 5
+
+// ON mode: if the accumulated buffer reaches this many words, send it to Gemini
+// immediately (without waiting for the flush timer). This enables mid-speech
+// interruption — Gemini gets a full clause while the user is still talking.
+const ON_MODE_SEND_WORD_THRESHOLD = 10
 
 // ─── Computed ────────────────────────────────────────────────────────────────
 
@@ -745,11 +755,16 @@ watch(isModelSpeaking, (speaking) => {
       speechRecognition.stop()
       // speechRecognitionActive is set false by the onend handler.
     }
-    // Cancel any pending ON-mode flush — Socratica is already responding.
+    // Cancel any pending ON-mode flush/response-window — Socratica is already responding.
     if (onModeFlushTimer !== null) {
       clearTimeout(onModeFlushTimer)
       onModeFlushTimer = null
     }
+    if (onModeResponseWindowTimer !== null) {
+      clearTimeout(onModeResponseWindowTimer)
+      onModeResponseWindowTimer = null
+    }
+    onModeAwaitingResponse = false
     onModeBuffer = ''
     // Drop any stale pending "You" bubble (interim echo from a previous turn).
     finalizeTranscript('You')
@@ -905,6 +920,13 @@ const enqueueAudioChunk = async (base64Audio: string) => {
   playbackCursor += buffer.duration
   isModelSpeaking.value = true
   activePlaybackNodes.push(source)
+  // Gemini has started responding — release the response-window lock so the
+  // next user clause can be sent if Gemini doesn't interrupt.
+  if (onModeResponseWindowTimer !== null) {
+    clearTimeout(onModeResponseWindowTimer)
+    onModeResponseWindowTimer = null
+  }
+  onModeAwaitingResponse = false
 
   source.onended = () => {
     activePlaybackNodes = activePlaybackNodes.filter((n) => n !== source)
@@ -1188,11 +1210,12 @@ const startMicrophone = async () => {
         silenceChunkCount = 0
         isListening.value = false
         // Gemini receives the audio via sendRealtimeInput and handles the response
-        // itself. We only need to finalize the local transcript display here.
-        if (accumulatedRecognitionText) {
-          addUserEntry(accumulatedRecognitionText)
-          accumulatedRecognitionText = ''
-        }
+        // itself. Gemini's inputAudioTranscription owns the "You" bubble — just
+        // finalize whatever it has streamed so far. Do NOT call addUserEntry here,
+        // which would overwrite Gemini's accurate transcription with the less
+        // accurate browser recognition text.
+        finalizeTranscript('You')
+        accumulatedRecognitionText = ''
         capturedSpeechChunks = []
       }
       return
@@ -1290,13 +1313,11 @@ const startSpeechRecognition = (): boolean => {
       isListening.value = interim.length > 0 || finalSegments.length > 0
 
       // Show live interim text in the pending "You" bubble (cumulative → replace).
-      if (interim) {
-        // In OFF mode, prefix with anything already accumulated so the bubble
-        // shows the full in-progress turn text.
-        const display = accumulatedRecognitionText
-          ? `${accumulatedRecognitionText} ${interim}`
-          : interim
-        replaceTranscriptText('You', display)
+      // Only in ON mode — in OFF mode, Gemini's inputAudioTranscription owns the
+      // bubble. Writing browser recognition text alongside Gemini's streaming
+      // transcription causes garbled/duplicated output.
+      if (interim && interruptingModeEnabled.value) {
+        replaceTranscriptText('You', onModeBuffer ? `${onModeBuffer} ${interim}` : interim)
       }
 
       if (finalSegments.length) {
@@ -1312,40 +1333,59 @@ const startSpeechRecognition = (): boolean => {
           onModeBuffer = onModeBuffer ? `${onModeBuffer} ${finalText}` : finalText
           replaceTranscriptText('You', onModeBuffer)
 
-          if (onModeFlushTimer !== null) clearTimeout(onModeFlushTimer)
-          onModeFlushTimer = setTimeout(() => {
-            onModeFlushTimer = null
-            if (!onModeBuffer) return
+          const bufferWordCount = onModeBuffer.trim().split(/\s+/).filter(Boolean).length
+
+          // If enough words have accumulated, send immediately — don't wait for
+          // silence. This is what enables true mid-speech interruption: Gemini
+          // receives a complete clause while the user is still talking and can
+          // decide whether to interject before the user finishes the sentence.
+          if (bufferWordCount >= ON_MODE_SEND_WORD_THRESHOLD && !onModeAwaitingResponse) {
+            if (onModeFlushTimer !== null) {
+              clearTimeout(onModeFlushTimer)
+              onModeFlushTimer = null
+            }
             const text = onModeBuffer
             onModeBuffer = ''
             capturedSpeechChunks = []
-            isListening.value = false
-            // Only send to Gemini if the clause is long enough to carry meaning.
-            // Short fragments (fillers, single words) give Gemini too little context
-            // to make a good interruption decision and would cause over-interruption.
-            const wordCount = text.trim().split(/\s+/).filter(Boolean).length
-            if (wordCount < ON_MODE_MIN_WORDS) {
-              addUserEntry(text)
-              return
-            }
-            // Gemini's VAD waits for silence before responding, so it would never
-            // interrupt mid-speech on its own. Sending the clause via sendClientContent
-            // gives Gemini the semantic content immediately so it can decide whether
-            // a pedagogically useful interruption is warranted right now.
-            // Audio streaming (sendRealtimeInput) still runs in parallel for
-            // inputAudioTranscription and START_OF_ACTIVITY_INTERRUPTS.
+            // Block further sends until Gemini starts responding (or 2.5s passes).
+            // This prevents the next short clause from arriving before Gemini can
+            // act on the first one, which would reset Gemini's processing window.
+            onModeAwaitingResponse = true
+            if (onModeResponseWindowTimer !== null) clearTimeout(onModeResponseWindowTimer)
+            onModeResponseWindowTimer = setTimeout(() => {
+              onModeResponseWindowTimer = null
+              onModeAwaitingResponse = false
+            }, 2500)
             sendRecognizedUserText(text)
-          }, ON_MODE_FLUSH_DELAY_MS)
+          } else {
+            // Not enough words yet (or already sent and waiting for response) —
+            // (re)set the fallback timer so that short utterances still get sent
+            // after the user pauses briefly.
+            if (onModeFlushTimer !== null) clearTimeout(onModeFlushTimer)
+            onModeFlushTimer = setTimeout(() => {
+              onModeFlushTimer = null
+              if (!onModeBuffer) return
+              const text = onModeBuffer
+              onModeBuffer = ''
+              capturedSpeechChunks = []
+              isListening.value = false
+              const wordCount = text.trim().split(/\s+/).filter(Boolean).length
+              if (wordCount < ON_MODE_MIN_WORDS) {
+                addUserEntry(text)
+                return
+              }
+              sendRecognizedUserText(text)
+            }, ON_MODE_FLUSH_DELAY_MS)
+          }
         } else {
           // ── Interrupting OFF ─────────────────────────────────────────────────
-          // Accumulate clauses. The ScriptProcessor silence detection (2 s) will
-          // flush `accumulatedRecognitionText` once the user truly stops talking,
-          // so Gemini gets the full answer before Socratica responds.
+          // Keep a local accumulation for silence-detection state tracking only.
+          // Do NOT write browser recognition text to the bubble — Gemini's
+          // inputAudioTranscription is the authoritative source for the "You"
+          // bubble in OFF mode. Mixing the two causes garbled/duplicated output.
           accumulatedRecognitionText = accumulatedRecognitionText
             ? `${accumulatedRecognitionText} ${finalText}`
             : finalText
-          // Update the bubble with the fully accumulated text so far.
-          replaceTranscriptText('You', accumulatedRecognitionText)
         }
       }
     }
