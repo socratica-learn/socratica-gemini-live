@@ -279,6 +279,8 @@ function scoreClass(score: number): string {
   color: #e8e0d0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   padding: 0 0 4rem;
+  position: relative;
+  overflow-y: auto;
 }
 
 /* ── Hero card ──────────────────────────────────────────── */

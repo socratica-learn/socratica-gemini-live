@@ -12,11 +12,14 @@ import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.core5.http.ContentType;
+import org.apache.hc.core5.http.ParseException;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.http.io.entity.StringEntity;
+import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.poi.hslf.usermodel.HSLFSlideShow;
+import org.apache.poi.hslf.usermodel.HSLFTextParagraph;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFShape;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
@@ -112,7 +115,7 @@ public class DocumentReviewService {
     }
 
     private String extractPdf(InputStream in) throws IOException {
-        try (PDDocument doc = PDDocument.load(in)) {
+        try (PDDocument doc = Loader.loadPDF(in.readAllBytes())) {
             PDFTextStripper stripper = new PDFTextStripper();
             return stripper.getText(doc);
         }
@@ -148,14 +151,12 @@ public class DocumentReviewService {
             StringBuilder sb = new StringBuilder();
             ppt.getSlides().forEach(slide -> {
                 sb.append("--- Slide ").append(slide.getSlideNumber()).append(" ---\n");
-                slide.getTextParagraphs().forEach(paragraphs ->
-                    paragraphs.forEach(p -> {
-                        String text = p.getText();
-                        if (text != null && !text.isBlank()) {
-                            sb.append(text).append("\n");
-                        }
-                    })
-                );
+                slide.getTextParagraphs().forEach(paragraphs -> {
+                    String text = HSLFTextParagraph.getText(paragraphs);
+                    if (text != null && !text.isBlank()) {
+                        sb.append(text).append("\n");
+                    }
+                });
             });
             return sb.toString();
         }
@@ -260,7 +261,7 @@ public class DocumentReviewService {
                 throw new RuntimeException("Unexpected Gemini response structure");
             }
             return textNode.asText();
-        } catch (IOException e) {
+        } catch (IOException | ParseException e) {
             throw new RuntimeException("Failed to call Gemini API", e);
         }
     }
