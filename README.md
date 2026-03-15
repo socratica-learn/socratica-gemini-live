@@ -128,6 +128,8 @@ The deployment reuses the MongoDB connection string from `.env`, so make sure `S
 ```bash
 gcloud auth login --update-adc
 gcloud config set project project-8d21f1f6-2009-4dcf-bff
+gcloud auth application-default set-quota-project project-8d21f1f6-2009-4dcf-bff
+gcloud auth application-default login
 ```
 
 If your org enforces periodic re-authentication and you see an `invalid_rapt` error, rerun the command above before retrying the deployment.
