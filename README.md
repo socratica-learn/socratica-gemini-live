@@ -84,6 +84,8 @@ For testing the project locally, it is recommended to use Docker Compose.
 docker-compose up -d
 ```
 
+Note: Keep in mind that social logins won't work with this setup. You can use the default email/password login or the live deployment.
+
 ### Backend Setup
 ```bash
 cd backend
