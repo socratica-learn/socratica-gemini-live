@@ -983,6 +983,12 @@ const calculateLevel = (input: Float32Array): number => {
   return Math.sqrt(sum / input.length)
 }
 
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i += 1) binary += String.fromCharCode(bytes[i])
+  return window.btoa(binary)
+}
 
 // ─── Server message handler ───────────────────────────────────────────────────
 
@@ -1111,6 +1117,16 @@ const startMicrophone = async () => {
     const downsampled = downsampleTo16k(inputSamples, audioContext.sampleRate)
     const pcm16Buffer = float32ToPcm16(downsampled)
 
+    // Stream audio to Gemini Live in real-time.
+    // This enables Gemini's built-in VAD, inputAudioTranscription, and
+    // START_OF_ACTIVITY_INTERRUPTS to work correctly.
+    // Skip while Socratica is speaking to prevent mic echo from being sent.
+    if (!isModelSpeaking.value) {
+      try {
+        session.sendRealtimeInput({ audio: { data: arrayBufferToBase64(pcm16Buffer), mimeType: 'audio/pcm;rate=16000' } })
+      } catch { /* session may be closing */ }
+    }
+
     // Speech detection — same for both modes.
     // Used to: (a) update isListening UI state, (b) clear Socratica's audio the
     // moment the user starts speaking, (c) trigger the end-of-turn flush in OFF mode.
@@ -1165,18 +1181,13 @@ const startMicrophone = async () => {
         speechActivityStarted = false
         silenceChunkCount = 0
         isListening.value = false
-        if (speechRecognitionEnabled && accumulatedRecognitionText) {
-          // Speech recognition captured this turn — use its text.
-          capturedSpeechChunks = []
-          const text = accumulatedRecognitionText
+        // Gemini receives the audio via sendRealtimeInput and handles the response
+        // itself. We only need to finalize the local transcript display here.
+        if (accumulatedRecognitionText) {
+          addUserEntry(accumulatedRecognitionText)
           accumulatedRecognitionText = ''
-          sendRecognizedUserText(text)
-        } else {
-          // Recognition is off, or was stopped while Socratica spoke (interruption)
-          // and captured nothing. Fall back to backend transcription of the audio.
-          accumulatedRecognitionText = ''
-          void transcribeCapturedSpeech()
         }
+        capturedSpeechChunks = []
       }
       return
     }
@@ -1301,11 +1312,11 @@ const startSpeechRecognition = (): boolean => {
             if (!onModeBuffer) return
             const text = onModeBuffer
             onModeBuffer = ''
-            // Clear captured audio so the silence-detector fallback doesn't
-            // re-transcribe audio that speech recognition already handled.
             capturedSpeechChunks = []
             isListening.value = false
-            sendRecognizedUserText(text)
+            // Gemini receives audio via sendRealtimeInput and handles the response.
+            // Just finalize the local transcript display.
+            addUserEntry(text)
           }, ON_MODE_FLUSH_DELAY_MS)
         } else {
           // ── Interrupting OFF ─────────────────────────────────────────────────
