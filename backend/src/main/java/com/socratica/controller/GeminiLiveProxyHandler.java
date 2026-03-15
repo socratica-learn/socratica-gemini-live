@@ -22,14 +22,19 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * WebSocket proxy handler that sits between the browser and the Vertex AI Live API.
+ * WebSocket proxy handler that sits between the browser and the Vertex AI Live
+ * API.
  *
- * The browser connects to /api/ai/live/proxy. This handler opens a corresponding
- * WebSocket to Vertex AI using server-side credentials and forwards messages in both
+ * The browser connects to /api/ai/live/proxy. This handler opens a
+ * corresponding
+ * WebSocket to Vertex AI using server-side credentials and forwards messages in
+ * both
  * directions transparently.
  *
- * The only transformation applied is injecting the configured model name into the
- * initial "setup" message that the browser sends, so the browser does not need to
+ * The only transformation applied is injecting the configured model name into
+ * the
+ * initial "setup" message that the browser sends, so the browser does not need
+ * to
  * know which model is in use.
  */
 @Component
@@ -37,8 +42,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
-    private static final String VERTEX_AI_WS_BASE_TEMPLATE =
-            "wss://%s-aiplatform.googleapis.com/ws/"
+    private static final String VERTEX_AI_WS_BASE_TEMPLATE = "wss://%s-aiplatform.googleapis.com/ws/"
             + "google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent";
 
     @Value("${socratica.gemini.project-id:}")
@@ -70,7 +74,7 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
             log.error("GOOGLE_CLOUD_PROJECT is not configured — rejecting proxy session {}", browserSession.getId());
             if (apiKey != null && !apiKey.isBlank()) {
                 sendErrorAndClose(browserSession,
-                        "Live voice sessions still require Vertex AI credentials. GOOGLE_API_KEY only enables local backend Gemini calls.");
+                        "Live voice sessions still require Vertex AI credentials. GEMINI_API_KEY only enables local backend Gemini calls.");
                 return;
             }
             sendErrorAndClose(browserSession, "GOOGLE_CLOUD_PROJECT is not configured on the server.");
@@ -211,7 +215,8 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
         }
 
         private void forwardToBrowser(String text) {
-            if (!browserSession.isOpen()) return;
+            if (!browserSession.isOpen())
+                return;
             try {
                 browserSession.sendMessage(new TextMessage(text));
             } catch (IOException e) {
@@ -238,7 +243,8 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     }
 
     private void sendErrorAndClose(WebSocketSession session, String message) {
-        if (!session.isOpen()) return;
+        if (!session.isOpen())
+            return;
         try {
             String errorJson = objectMapper.writeValueAsString(
                     Map.of("error", Map.of("message", message)));

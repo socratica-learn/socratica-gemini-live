@@ -7,7 +7,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Provides a singleton {@link Client} bean for the Google Gen AI Java SDK using Vertex AI.
+ * Provides a singleton {@link Client} bean for the Google Gen AI Java SDK using
+ * Vertex AI.
  */
 @Configuration
 @Slf4j
@@ -33,7 +34,7 @@ public class GeminiClientConfig {
 
         if (projectId == null || projectId.isBlank()) {
             throw new IllegalStateException(
-                    "Set GOOGLE_API_KEY for local development or GOOGLE_CLOUD_PROJECT for Vertex AI.");
+                    "Set GEMINI_API_KEY for local development or GOOGLE_CLOUD_PROJECT for Vertex AI.");
         }
 
         log.info("Initializing Gemini Client with Vertex AI: project={}, location={}", projectId, location);

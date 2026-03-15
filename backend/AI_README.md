@@ -181,18 +181,18 @@ These endpoints use Gemini through `AiService`.
 
 Required environment variables:
 
-- `GOOGLE_API_KEY` for local backend Gemini calls, or:
+- `GEMINI_API_KEY` for local backend Gemini calls, or:
 - `GOOGLE_CLOUD_PROJECT` plus Application Default Credentials via `gcloud auth application-default login` locally or a runtime service account in Cloud Run
 - `GOOGLE_CLOUD_REGION` (optional, default: `europe-west4`)
 - `GEMINI_MODEL` (optional, default: `gemini-3-flash-preview`)
 - `GEMINI_LIVE_MODEL` (optional, default: `gemini-live-2.5-flash-native-audio`)
 
-`GOOGLE_API_KEY` is intended for local development convenience. The live websocket proxy remains Vertex AI-based and still requires `GOOGLE_CLOUD_PROJECT` with Vertex credentials.
+`GEMINI_API_KEY` is intended for local development convenience. The live websocket proxy remains Vertex AI-based and still requires `GOOGLE_CLOUD_PROJECT` with Vertex credentials.
 
 Docker (backend service):
 
 ```
-GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+GEMINI_API_KEY: ${GEMINI_API_KEY}
 GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
 GOOGLE_CLOUD_REGION: ${GOOGLE_CLOUD_REGION}
 ```
