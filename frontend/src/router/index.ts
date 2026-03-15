@@ -64,6 +64,9 @@ const router = createRouter({
       path: '/build-your-socrate',
       name: 'build-your-socrate',
       component: () => import('../views/BuildYourSocrateView.vue')
+      path: '/document-review',
+      name: 'document-review',
+      component: () => import('../views/DocumentReviewView.vue')
     },
     {
       path: '/privacy-policy',

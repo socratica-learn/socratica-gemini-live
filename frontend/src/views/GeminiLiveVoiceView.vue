@@ -469,6 +469,22 @@ let onModeFlushTimer: ReturnType<typeof setTimeout> | null = null
 // so the user's interruption appears in the live transcript right away.
 let userInterruptedSocratica = false
 
+// ─── Assistant-initiated interruption state ───────────────────────────────────
+// When Socratica wants to interrupt the user (interruptingMode = ON only), we
+// briefly send silence to Gemini instead of real audio. This makes Gemini's VAD
+// detect "end of activity" so Gemini can respond without being immediately
+// cancelled by START_OF_ACTIVITY_INTERRUPTS (which fires whenever real user
+// audio is present). Once Gemini starts speaking we restore real audio so the
+// user can still barge in at any time.
+let assistantIsInterruptingUser = false
+let assistantInterruptSuppressUntil = 0   // epoch ms; suppression ends at this time
+let lastAssistantInterruptTime = 0        // epoch ms; cooldown between interruptions
+
+// Accumulates Gemini's server-side inputTranscription text during the user's
+// current turn (ON mode only). Higher quality than browser recognition — used
+// to evaluate whether an assistant interruption is warranted.
+let inputTranscriptionAccumulator = ''
+
 // ─── Audio constants ──────────────────────────────────────────────────────────
 // Each ScriptProcessor chunk is 4096 samples.
 // At 48 kHz ≈ 85 ms/chunk; at 44.1 kHz ≈ 93 ms/chunk.
@@ -486,9 +502,31 @@ const SILENCE_CHUNKS_INTERRUPTING_ON = 9   // ≈ 750 ms
 const SILENCE_CHUNKS_INTERRUPTING_OFF = 24  // ≈ 2 s
 
 // ON mode: how long (ms) to wait after the last isFinal segment before flushing
-// the buffer to Gemini. Brief enough to feel reactive; long enough to group
-// related clauses so Gemini evaluates meaning, not isolated words.
-const ON_MODE_FLUSH_DELAY_MS = 450
+// the buffer to Gemini. Long enough to accumulate a meaningful clause so Gemini
+// evaluates intent and context, not a single isolated word.
+// 1000 ms strikes a balance: reactive enough to feel live, patient enough that
+// natural mid-sentence pauses don't trigger a premature interruption.
+const ON_MODE_FLUSH_DELAY_MS = 500
+
+// ON mode: minimum number of words a flushed clause must contain before it is
+// sent to Gemini. Fillers ("um", "so", "like") and single-word fragments give
+// Gemini too little context to make a good interruption decision.
+const ON_MODE_MIN_WORDS = 5
+
+// ─── Assistant interruption constants ────────────────────────────────────────
+// How long (ms) to suppress user audio so Gemini's VAD detects "end of
+// activity" and can generate a response without START_OF_ACTIVITY_INTERRUPTS
+// cancelling it. Suppression automatically ends when Gemini starts speaking.
+const INTERRUPT_AUDIO_SUPPRESS_MS = 3000   // max suppression (safety cap)
+
+// Minimum words the server-side transcript must contain before we open an
+// evaluation window for a mid-turn interruption. Low values fire too early
+// (student hasn't said enough); high values fire too late.
+const INTERRUPT_EVAL_MIN_WORDS = 15
+
+// Minimum ms between consecutive assistant-initiated interruptions.
+// Prevents Socratica from interrupting again immediately after speaking.
+const INTERRUPT_COOLDOWN_MS = 8000
 
 // ─── Computed ────────────────────────────────────────────────────────────────
 
@@ -649,18 +687,17 @@ const addUserEntry = (text: string) => {
 const buildTutorPrompt = () => {
   const interruptBehavior = interruptingModeEnabled.value
     ? [
-        'You are in ACTIVE INTERRUPTION MODE.',
-        'Listen carefully to the meaning of what the student says, not just whether they have paused.',
-        'Interrupt the student — even mid-explanation — whenever you detect any of the following:',
-        '(1) A vague or undefined term that needs clarification.',
-        '(2) An incorrect fact, flawed logic, or inconsistent claim.',
-        '(3) A skipped causal step — the student jumped to a conclusion without explaining why.',
-        '(4) The student sounds uncertain, confused, or is visibly guessing.',
-        '(5) The answer is too shallow — important details are being glossed over.',
-        '(6) A natural Socratic moment: a question that would deepen understanding right now.',
-        'When any of these occur, interrupt with ONE short, focused question or gentle correction.',
-        'Do not wait for the student to finish their full thought — jump in naturally, like an engaged tutor leaning in.',
-        'Only stay silent when the student is clearly on the right track and building a solid explanation.',
+        'You are in ACTIVE LISTENING MODE.',
+        'Listen carefully to the meaning and accuracy of what the student says, not just whether they have paused.',
+        'Your default is silence — stay quiet and let the student speak unless one of the following high-value moments arises:',
+        '(1) A clearly incorrect fact or logical error that will compound if left uncorrected now.',
+        '(2) A critical causal step is skipped — the student jumped to a conclusion without explaining why.',
+        '(3) The student is visibly going in the wrong direction and continuing would waste their effort.',
+        'When one of these moments occurs, interrupt naturally and briefly with ONE focused question or a short gentle correction.',
+        'Keep your interruption to one sentence. Do not lecture — ask.',
+        'If the student is on the right track, even if imperfect or incomplete, stay silent and let them finish.',
+        'Minor hesitations, filler words, or small omissions do not warrant an interruption.',
+        'Reserve interruptions for moments where stepping in genuinely improves the student\'s understanding.',
       ].join(' ')
     : 'Always wait for the student to fully finish their explanation before you speak. Do not interrupt, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.'
 
@@ -675,6 +712,63 @@ const buildTutorPrompt = () => {
     'Ask one question at a time. After the student answers, briefly acknowledge their point before building on it or challenging it.',
     'This is a back-and-forth spoken conversation, not a lecture. Avoid long monologues.',
   ].join(' ')
+}
+
+// ─── Assistant interruption logic (interruptingMode = ON only) ───────────────
+
+// Trigger an assistant-initiated interruption by suppressing user audio so
+// Gemini's VAD detects "end of activity" and generates its response.
+// Suppression ends as soon as Gemini's first audio chunk arrives (see
+// enqueueAudioChunk) so the user can still barge in while Socratica speaks.
+const triggerAssistantInterruption = () => {
+  if (!interruptingModeEnabled.value) return
+  if (assistantIsInterruptingUser) return
+  if (isModelSpeaking.value) return
+
+  const now = Date.now()
+  if (now - lastAssistantInterruptTime < INTERRUPT_COOLDOWN_MS) return
+
+  addEvent('Assistant interruption triggered — suppressing user audio to allow Gemini response.')
+  assistantIsInterruptingUser = true
+  assistantInterruptSuppressUntil = now + INTERRUPT_AUDIO_SUPPRESS_MS
+  lastAssistantInterruptTime = now
+
+  // Reset VAD state so the suppression gap is not mistaken for real silence
+  // in the ScriptProcessor silence counter.
+  speechActivityStarted = false
+  silenceChunkCount = 0
+
+  // Clear any pending ON-mode flush so we don't also send text right after.
+  if (onModeFlushTimer !== null) { clearTimeout(onModeFlushTimer); onModeFlushTimer = null }
+  onModeBuffer = ''
+  inputTranscriptionAccumulator = ''
+}
+
+// Open a mid-turn evaluation window for the assistant.
+// Called on every inputTranscription chunk in ON mode.
+//
+// Design rationale: we do NOT use client-side pattern matching here. Any
+// heuristic regex would be too narrow (missing domain-specific errors) or too
+// broad (firing on innocent phrasing). Instead, once the student has said
+// enough words, we open a brief audio-suppression window so Gemini's own LLM
+// can evaluate what it heard against the ACTIVE LISTENING MODE system prompt.
+// Gemini decides whether to speak. If on track → Gemini stays quiet and the
+// student continues. If there is a high-value interruption moment → Gemini
+// speaks immediately.
+const evaluateInputTranscriptionForInterrupt = (text: string) => {
+  if (!interruptingModeEnabled.value) return
+  if (assistantIsInterruptingUser || isModelSpeaking.value) return
+
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  if (words.length < INTERRUPT_EVAL_MIN_WORDS) return
+
+  const now = Date.now()
+  if (now - lastAssistantInterruptTime < INTERRUPT_COOLDOWN_MS) return
+
+  // Enough words have accumulated — give Gemini a chance to evaluate and
+  // respond. The cooldown ensures this happens at most once every 8 seconds.
+  addEvent(`Evaluation window opened at ${words.length} words — triggering audio suppression.`)
+  triggerAssistantInterruption()
 }
 
 // ─── Interrupting mode toggle ─────────────────────────────────────────────────
@@ -692,21 +786,24 @@ watch(interruptingModeEnabled, (newValue) => {
   accumulatedRecognitionText = ''
   finalizeTranscript('You')
 
-  // Clear any ON-mode buffer from the previous mode.
+  // Clear any ON-mode buffer and interruption state from the previous mode.
   if (onModeFlushTimer !== null) {
     clearTimeout(onModeFlushTimer)
     onModeFlushTimer = null
   }
   onModeBuffer = ''
+  assistantIsInterruptingUser = false
+  inputTranscriptionAccumulator = ''
 
   const modeMessage = newValue
     ? [
-        '[Behaviour update: ACTIVE INTERRUPTION MODE is now ON.',
-        'From this point forward, listen carefully to the meaning of what the student says.',
-        'Interrupt promptly — even mid-sentence — when the student is vague, incorrect, skipping reasoning steps, confused, or needs to elaborate.',
-        'Do not rely on silence alone to decide when to respond.',
-        'React to the content: jump in with one focused question or gentle correction whenever it would help.',
-        'Only stay silent when the student is clearly on the right track.]',
+        '[Behaviour update: ACTIVE LISTENING MODE is now ON.',
+        'Listen carefully to the meaning and accuracy of what the student says.',
+        'Your default is silence — only interrupt for high-value moments:',
+        'a clear factual error, a critical missing reasoning step, or the student heading in the wrong direction.',
+        'Keep any interruption to one short question or correction.',
+        'Do not interrupt for hesitations, minor omissions, or imperfect phrasing.',
+        'If the student is on the right track, stay silent and let them finish.]',
       ].join(' ')
     : '[Behaviour update: From this point on, always wait for the student to fully finish speaking before responding. Do not interrupt under any circumstance, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.]'
 
@@ -738,12 +835,13 @@ watch(isModelSpeaking, (speaking) => {
       speechRecognition.stop()
       // speechRecognitionActive is set false by the onend handler.
     }
-    // Cancel any pending ON-mode flush — Socratica is already responding.
+    // Cancel any pending ON-mode flush/response-window — Socratica is already responding.
     if (onModeFlushTimer !== null) {
       clearTimeout(onModeFlushTimer)
       onModeFlushTimer = null
     }
     onModeBuffer = ''
+    inputTranscriptionAccumulator = ''
     // Drop any stale pending "You" bubble (interim echo from a previous turn).
     finalizeTranscript('You')
   } else {
@@ -899,6 +997,12 @@ const enqueueAudioChunk = async (base64Audio: string) => {
   isModelSpeaking.value = true
   activePlaybackNodes.push(source)
 
+  // Gemini is now speaking — end audio suppression immediately so real user
+  // audio is restored. This preserves user barge-in: the user can interrupt
+  // Socratica at any time regardless of interruptingMode.
+  assistantIsInterruptingUser = false
+  inputTranscriptionAccumulator = ''
+
   source.onended = () => {
     activePlaybackNodes = activePlaybackNodes.filter((n) => n !== source)
     if (!activePlaybackNodes.length && audioContext) {
@@ -983,6 +1087,12 @@ const calculateLevel = (input: Float32Array): number => {
   return Math.sqrt(sum / input.length)
 }
 
+const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i += 1) binary += String.fromCharCode(bytes[i])
+  return window.btoa(binary)
+}
 
 // ─── Server message handler ───────────────────────────────────────────────────
 
@@ -1045,9 +1155,20 @@ const handleServerMessage = async (payload: unknown) => {
   // (Only fires when real audio is streamed to Gemini via sendRealtimeInput.)
   if (inputTranscription?.text) {
     streamTranscript('You', inputTranscription.text)
+
+    // In ON mode, accumulate the server-side transcript and evaluate it for
+    // mid-turn interruption signals. We use the server transcript (not browser
+    // recognition) because it arrives even while audio suppression is active
+    // and is more accurate for semantic evaluation.
+    if (interruptingModeEnabled.value) {
+      inputTranscriptionAccumulator += inputTranscription.text
+      evaluateInputTranscriptionForInterrupt(inputTranscriptionAccumulator)
+    }
   }
   if (inputTranscription?.finished) {
     finalizeTranscript('You', inputTranscription.text ?? undefined)
+    // User turn ended naturally — reset the accumulator for the next turn.
+    inputTranscriptionAccumulator = ''
   }
 
   // Live Socratica transcript — streams the model's spoken response as it plays.
@@ -1111,6 +1232,31 @@ const startMicrophone = async () => {
     const downsampled = downsampleTo16k(inputSamples, audioContext.sampleRate)
     const pcm16Buffer = float32ToPcm16(downsampled)
 
+    // Stream audio to Gemini Live in real-time — always, even while Socratica
+    // is speaking. Gemini needs to receive the user's audio to trigger
+    // START_OF_ACTIVITY_INTERRUPTS and stop its own generation when the user
+    // starts talking. Browser echo cancellation (echoCancellation: true in
+    // getUserMedia) handles mic feedback from the speakers.
+    //
+    // Exception: when an assistant-initiated interruption is pending
+    // (interruptingMode = ON), we send silence instead of real audio for a
+    // short window. This makes Gemini's VAD detect "end of activity" so Gemini
+    // can generate its response without START_OF_ACTIVITY_INTERRUPTS
+    // cancelling it. Suppression ends as soon as Gemini's first audio chunk
+    // arrives (see enqueueAudioChunk), restoring user barge-in capability.
+    try {
+      const nowMs = Date.now()
+      const suppressing = assistantIsInterruptingUser && nowMs < assistantInterruptSuppressUntil
+      if (!suppressing && assistantIsInterruptingUser) {
+        // Safety: suppression window expired without Gemini responding — restore audio.
+        assistantIsInterruptingUser = false
+      }
+      const audioPayload = suppressing
+        ? new ArrayBuffer(pcm16Buffer.byteLength)  // silence
+        : pcm16Buffer
+      session.sendRealtimeInput({ audio: { data: arrayBufferToBase64(audioPayload), mimeType: 'audio/pcm;rate=16000' } })
+    } catch { /* session may be closing */ }
+
     // Speech detection — same for both modes.
     // Used to: (a) update isListening UI state, (b) clear Socratica's audio the
     // moment the user starts speaking, (c) trigger the end-of-turn flush in OFF mode.
@@ -1122,7 +1268,9 @@ const startMicrophone = async () => {
         isListening.value = true
         capturedSpeechChunks.push(pcm16Buffer)
       } else if (consecutiveSpeechChunks >= SPEECH_CONFIRM_CHUNKS) {
-        capturedSpeechChunks = []
+        // Do NOT clear capturedSpeechChunks here — the chunks collected during
+        // the confirmation phase (the else branch below) ARE the first ~180 ms
+        // of the user's speech. Discarding them loses the first word.
         addEvent('User speech confirmed — clearing model audio.')
         const wasModelSpeaking = isModelSpeaking.value
         clearPlaybackQueue()
@@ -1131,16 +1279,17 @@ const startMicrophone = async () => {
           // uses a near-zero restart delay instead of the normal 600 ms echo-decay
           // delay, letting the live interruption transcript appear immediately.
           userInterruptedSocratica = true
-          // Also try to restart recognition right now — the playback has stopped so
-          // there is no echo to worry about. Falls back to the watcher if recognition
-          // hasn't finished stopping yet (it will throw, which we ignore).
-          if (speechRecognitionEnabled && speechRecognition && !speechRecognitionActive) {
-            try {
-              speechRecognition.start()
-              speechRecognitionActive = true
-              addEvent('Recognition restarted immediately for user interruption.')
-            } catch { /* recognition stop() may not be complete yet; watcher will handle it */ }
-          }
+        }
+        // Restart recognition immediately whenever speech is confirmed, not only
+        // on interruption. Recognition may still be in the echo-decay restart
+        // window after Socratica finished naturally — starting it now prevents
+        // the first word from being missed while the timer is still counting down.
+        if (speechRecognitionEnabled && speechRecognition && !speechRecognitionActive) {
+          try {
+            speechRecognition.start()
+            speechRecognitionActive = true
+            addEvent('Recognition restarted on speech confirmation.')
+          } catch { /* recognition may still be stopping; watcher will handle it */ }
         }
         speechActivityStarted = true
         silenceChunkCount = 0
@@ -1158,22 +1307,21 @@ const startMicrophone = async () => {
       silenceChunkCount += 1
       capturedSpeechChunks.push(pcm16Buffer)
 
-      if (silenceChunkCount >= SILENCE_CHUNKS_INTERRUPTING_OFF) {
+      const silenceThreshold = interruptingModeEnabled.value
+        ? SILENCE_CHUNKS_INTERRUPTING_ON
+        : SILENCE_CHUNKS_INTERRUPTING_OFF
+      if (silenceChunkCount >= silenceThreshold) {
         speechActivityStarted = false
         silenceChunkCount = 0
         isListening.value = false
-        if (speechRecognitionEnabled && accumulatedRecognitionText) {
-          // Speech recognition captured this turn — use its text.
-          capturedSpeechChunks = []
-          const text = accumulatedRecognitionText
-          accumulatedRecognitionText = ''
-          sendRecognizedUserText(text)
-        } else {
-          // Recognition is off, or was stopped while Socratica spoke (interruption)
-          // and captured nothing. Fall back to backend transcription of the audio.
-          accumulatedRecognitionText = ''
-          void transcribeCapturedSpeech()
-        }
+        // Gemini receives the audio via sendRealtimeInput and handles the response
+        // itself. Gemini's inputAudioTranscription owns the "You" bubble — just
+        // finalize whatever it has streamed so far. Do NOT call addUserEntry here,
+        // which would overwrite Gemini's accurate transcription with the less
+        // accurate browser recognition text.
+        finalizeTranscript('You')
+        accumulatedRecognitionText = ''
+        capturedSpeechChunks = []
       }
       return
     }
@@ -1270,13 +1418,11 @@ const startSpeechRecognition = (): boolean => {
       isListening.value = interim.length > 0 || finalSegments.length > 0
 
       // Show live interim text in the pending "You" bubble (cumulative → replace).
-      if (interim) {
-        // In OFF mode, prefix with anything already accumulated so the bubble
-        // shows the full in-progress turn text.
-        const display = accumulatedRecognitionText
-          ? `${accumulatedRecognitionText} ${interim}`
-          : interim
-        replaceTranscriptText('You', display)
+      // Only in ON mode — in OFF mode, Gemini's inputAudioTranscription owns the
+      // bubble. Writing browser recognition text alongside Gemini's streaming
+      // transcription causes garbled/duplicated output.
+      if (interim && interruptingModeEnabled.value) {
+        replaceTranscriptText('You', onModeBuffer ? `${onModeBuffer} ${interim}` : interim)
       }
 
       if (finalSegments.length) {
@@ -1284,36 +1430,45 @@ const startSpeechRecognition = (): boolean => {
 
         if (interruptingModeEnabled.value) {
           // ── Interrupting ON ──────────────────────────────────────────────────
-          // Buffer final segments briefly before flushing to Gemini. This groups
-          // related clauses together so Gemini can evaluate meaning across a full
-          // thought, not just react to a single isolated word or phrase.
-          // The flush fires ON_MODE_FLUSH_DELAY_MS after the last isFinal segment,
-          // giving Gemini richer semantic context to decide whether to interrupt.
+          // ── Interrupting ON ──────────────────────────────────────────────────
+          // Accumulate isFinal segments and show them in the live transcript.
+          // Mid-turn interruptions are handled by audio suppression triggered
+          // from evaluateInputTranscriptionForInterrupt (called on every
+          // inputTranscription event) — NOT by sending partial text turns here.
+          // Sending turnComplete:true mid-speech would force Gemini to respond
+          // regardless of content; audio suppression lets Gemini decide.
+          //
+          // The flush timer below handles natural end-of-turn: when the user
+          // pauses for ON_MODE_FLUSH_DELAY_MS, send the accumulated text so
+          // Gemini can give a full reply.
           onModeBuffer = onModeBuffer ? `${onModeBuffer} ${finalText}` : finalText
           replaceTranscriptText('You', onModeBuffer)
 
+          // (Re)set the flush timer — fires after the user pauses briefly.
           if (onModeFlushTimer !== null) clearTimeout(onModeFlushTimer)
           onModeFlushTimer = setTimeout(() => {
             onModeFlushTimer = null
             if (!onModeBuffer) return
             const text = onModeBuffer
             onModeBuffer = ''
-            // Clear captured audio so the silence-detector fallback doesn't
-            // re-transcribe audio that speech recognition already handled.
             capturedSpeechChunks = []
             isListening.value = false
+            const wordCount = text.trim().split(/\s+/).filter(Boolean).length
+            if (wordCount < ON_MODE_MIN_WORDS) {
+              addUserEntry(text)
+              return
+            }
             sendRecognizedUserText(text)
           }, ON_MODE_FLUSH_DELAY_MS)
         } else {
           // ── Interrupting OFF ─────────────────────────────────────────────────
-          // Accumulate clauses. The ScriptProcessor silence detection (2 s) will
-          // flush `accumulatedRecognitionText` once the user truly stops talking,
-          // so Gemini gets the full answer before Socratica responds.
+          // Keep a local accumulation for silence-detection state tracking only.
+          // Do NOT write browser recognition text to the bubble — Gemini's
+          // inputAudioTranscription is the authoritative source for the "You"
+          // bubble in OFF mode. Mixing the two causes garbled/duplicated output.
           accumulatedRecognitionText = accumulatedRecognitionText
             ? `${accumulatedRecognitionText} ${finalText}`
             : finalText
-          // Update the bubble with the fully accumulated text so far.
-          replaceTranscriptText('You', accumulatedRecognitionText)
         }
       }
     }
