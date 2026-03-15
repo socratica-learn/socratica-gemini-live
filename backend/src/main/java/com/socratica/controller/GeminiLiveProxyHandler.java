@@ -201,11 +201,7 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     private String resolveApiKey() {
-        if (geminiApiKey != null && !geminiApiKey.isBlank()) {
-            return geminiApiKey;
-        }
-        String env = System.getenv("VITE_GEMINI_API_KEY");
-        return env != null ? env.trim() : "";
+        return geminiApiKey == null ? "" : geminiApiKey.trim();
     }
 
     private void sendErrorAndClose(WebSocketSession session, String message) {

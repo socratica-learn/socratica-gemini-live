@@ -126,10 +126,6 @@ public class GeminiLiveService {
     }
 
     private String resolveGeminiApiKey() {
-        if (geminiApiKey != null && !geminiApiKey.isBlank()) {
-            return geminiApiKey;
-        }
-        String viteGeminiApiKey = System.getenv("VITE_GEMINI_API_KEY");
-        return viteGeminiApiKey == null ? "" : viteGeminiApiKey.trim();
+        return geminiApiKey == null ? "" : geminiApiKey.trim();
     }
 }

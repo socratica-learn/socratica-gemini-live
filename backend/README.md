@@ -25,6 +25,7 @@ Spring Boot backend application for the Socratica AI-powered study assistant.
 1. Create `.env` file in the `backend/` directory:
 ```bash
 SPRING_DATA_MONGODB_URI=mongodb://localhost:27017/socratica_dev
+GEMINI_API_KEY=your_gemini_api_key
 JWT_SECRET=your_jwt_secret_key
 ```
 
@@ -99,6 +100,7 @@ backend/
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `SPRING_DATA_MONGODB_URI` | MongoDB connection URL | Yes |
+| `GEMINI_API_KEY` | Gemini API key used by backend AI endpoints and live proxy | Yes |
 | `JWT_SECRET` | Secret key for JWT tokens | Yes |
 | `JWT_EXPIRATION` | JWT token expiration (ms) | No (default: 3600000) |
 
@@ -109,5 +111,4 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for development guidelines.
 ## License
 
 Proprietary - All rights reserved
-
 

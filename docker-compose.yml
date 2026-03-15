@@ -19,7 +19,6 @@ services:
       SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI:-mongodb://mongo:27017/socratica_dev}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-socratica_dev}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY:-}
       GEMINI_LIVE_MODEL: ${GEMINI_LIVE_MODEL:-gemini-live-2.5-flash-preview}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -46,10 +45,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # VITE_* vars must be build args — Vite bakes them into the JS bundle
-        # at build time; runtime environment vars have no effect on the bundle.
         VITE_API_BASE_URL: /api
-        VITE_GEMINI_API_KEY: ${VITE_GEMINI_API_KEY:-}
     container_name: socratica-frontend
     ports:
       - "5173:80"
@@ -58,4 +54,3 @@ services:
     restart: unless-stopped
 volumes:
   mongo_data:
-

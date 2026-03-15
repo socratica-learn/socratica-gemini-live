@@ -5,9 +5,7 @@ WORKDIR /app
 # Accept build-time env vars so Vite can bake them into the JS bundle.
 # These must be ARGs (not ENV) so they are only available during the build.
 ARG VITE_API_BASE_URL=/api
-ARG VITE_GEMINI_API_KEY
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
-ENV VITE_GEMINI_API_KEY=$VITE_GEMINI_API_KEY
 
 # Copy package files
 COPY package*.json ./
