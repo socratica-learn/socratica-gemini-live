@@ -157,7 +157,7 @@
           preferences, and goals. Your Socrate adapts to you, making every conversation more effective and engaging.
         </p>
         <div class="build-cta-wrapper">
-          <button class="cta secondary" @click="goToLiveVoice" style="pointer-events: all;">Get Started <span class="arrow">→</span></button>
+          <button class="cta secondary" @click="router.push('/build-your-socrate')" style="pointer-events: all;">Get Started <span class="arrow">→</span></button>
         </div>
       </div>
     </section>
@@ -313,7 +313,7 @@ onMounted(() => {
   // Initialize Spline via runtime — intercept mouse events to lock Y to center
   if (splineCanvas.value) {
     splineApp = new Application(splineCanvas.value)
-    splineApp.load('https://prod.spline.design/BZ0vKZC2HzGTT4JS/scene.splinecode').then(() => {
+    splineApp.load('https://prod.spline.design/VZSS2xX-gze-TSeK/scene.splinecode').then(() => {
       const canvas = splineCanvas.value
       if (!canvas) return
 
