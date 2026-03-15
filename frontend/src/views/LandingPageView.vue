@@ -157,7 +157,7 @@
           preferences, and goals. Your Socrate adapts to you, making every conversation more effective and engaging.
         </p>
         <div class="build-cta-wrapper">
-          <button class="cta secondary" @click="router.push('/build-your-socrate')" style="pointer-events: all;">Get Started <span class="arrow">→</span></button>
+          <button class="cta secondary" @click="goToBuild" style="pointer-events: all;">Get Started <span class="arrow">→</span></button>
         </div>
       </div>
     </section>
@@ -220,6 +220,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { Application } from '@splinetool/runtime'
 import { useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/authStore'
 import logo from '@/assets/logo.png'
 import videoSrc from '@/assets/Socio-technical-3.mp4'
 import goldenBack from '@/assets/golden-back.png'
@@ -245,6 +246,15 @@ const splineCanvas = ref<HTMLCanvasElement | null>(null)
 let splineApp: Application | null = null
 let handleScroll: (() => void) | null = null
 const router = useRouter()
+const authStore = useAuthStore()
+
+function requireAuthGoTo(path: string) {
+  if (!authStore.isAuthenticated || !authStore.user?.id) {
+    router.push({ name: 'login', query: { redirect: path } })
+    return
+  }
+  router.push(path)
+}
 
 // Carousel state
 const currentSlide = ref(0)
@@ -289,7 +299,11 @@ const goToLogin = () => {
 }
 
 const goToLiveVoice = () => {
-  router.push('/live-voice')
+  requireAuthGoTo('/build-your-socrate')
+}
+
+const goToBuild = () => {
+  requireAuthGoTo('/build-your-socrate')
 }
 
 const handleButtonEnter = () => {

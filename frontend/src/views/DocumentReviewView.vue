@@ -235,8 +235,8 @@ async function analyzeDocument() {
     const formData = new FormData()
     formData.append('file', selectedFile.value)
 
-    const backendUrl = import.meta.env.VITE_BACKEND_URL ?? 'http://localhost:8080'
-    const response = await fetch(`${backendUrl}/api/ai/document-review`, {
+    const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080/api'
+    const response = await fetch(`${apiBaseUrl}/ai/document-review`, {
       method: 'POST',
       body: formData,
     })

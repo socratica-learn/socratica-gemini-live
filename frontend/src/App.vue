@@ -14,7 +14,7 @@ watch(() => route.name, (to, from) => {
     transitionDirection.value = 'right' // Sign Up → Login: slide right
   } else if (from === 'login' && to === 'signup') {
     transitionDirection.value = 'left' // Login → Sign Up: slide left
-  } else if (from === 'personalize' && to === 'post-auth') {
+  } else if (from === 'personalize' && to === 'build-your-socrate') {
     transitionDirection.value = 'right' // Personalize → Post-auth: new page from right, old leaves left
   }
 })
@@ -24,8 +24,8 @@ const transitionName = computed(() => {
   if (name === 'signup' || name === 'login') {
     return transitionDirection.value === 'right' ? 'slide-right' : 'slide-left'
   }
-  if (name === 'post-auth' && previousRoute.value === 'personalize') {
-    return 'slide-right' // Cool right-to-left: post-auth enters from right, personalize leaves to left
+  if (name === 'build-your-socrate' && previousRoute.value === 'personalize') {
+    return 'slide-right' // Cool right-to-left: build-your-socrate enters from right, personalize leaves to left
   }
   return 'fade'
 })

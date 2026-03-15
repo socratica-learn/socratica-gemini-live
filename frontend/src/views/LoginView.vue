@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuthStore } from '../stores/authStore'
 import { authService } from '../services/authService'
 import logo from '@/assets/logo.png'
 import socrateAndPeople from '@/assets/socrateandpeople.png'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const showPassword = ref(true)
 
@@ -50,7 +51,12 @@ async function handleSubmit() {
       email: formData.value.email,
       password: formData.value.password,
     })
-    router.push('/post-auth')
+    const redirectPath = typeof route.query.redirect === 'string' ? route.query.redirect : ''
+    if (redirectPath) {
+      router.push(redirectPath)
+    } else {
+      router.push('/build-your-socrate')
+    }
   } catch (error) {
     // Error is handled by the store
   }
