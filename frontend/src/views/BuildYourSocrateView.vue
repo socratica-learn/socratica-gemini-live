@@ -1,11 +1,63 @@
 <template>
   <div class="build-page">
-    <a class="back-btn" @click.prevent="personalizing ? (personalizing = false) : router.push('/')">
+    <a class="back-btn" @click.prevent="personalizing ? (personalizing = false) : historyOpen ? (historyOpen = false) : router.push('/')">
       <svg class="back-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M19 12H5M5 12l7-7M5 12l7 7"/>
       </svg>
-      <span class="back-label">{{ personalizing ? 'Back to session' : 'Back to homepage' }}</span>
+      <span class="back-label">{{ personalizing ? 'Back to session' : historyOpen ? 'Back to session' : 'Back to homepage' }}</span>
     </a>
+
+    <!-- History button -->
+    <button class="history-btn" :class="{ 'hidden-ui': personalizing }" @click="historyOpen = true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M12 8v4l3 3M3.05 11a9 9 0 1 0 .5-3"/>
+        <path d="M3 4v4h4"/>
+      </svg>
+      <span>History</span>
+    </button>
+
+    <!-- History overlay -->
+    <transition name="history">
+      <div v-if="historyOpen" class="history-overlay" :class="{ 'hidden-ui': personalizing }">
+        <div class="history-panel">
+          <div class="history-header">
+            <h2 class="history-title">Session History</h2>
+            <button class="history-close" @click="historyOpen = false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
+            </button>
+          </div>
+          <div class="history-body">
+            <div v-if="sessionHistory.length === 0" class="history-empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M12 8v4l3 3M3.05 11a9 9 0 1 0 .5-3"/><path d="M3 4v4h4"/>
+              </svg>
+              <p>No sessions yet. Start a session to see your history here.</p>
+            </div>
+            <div v-for="session in sessionHistory" :key="session.id" class="history-item">
+              <div class="history-item-type">{{ session.type }}</div>
+              <div class="history-item-main">
+                <span class="history-item-title">{{ session.title || 'Untitled session' }}</span>
+                <span v-if="session.topic" class="history-item-topic">{{ session.topic }}</span>
+              </div>
+              <div class="history-item-meta">
+                <span class="history-item-date">{{ session.date }}</span>
+                <span class="history-item-count">{{ session.messageCount }} {{ session.messageCount === 1 ? 'message' : 'messages' }}</span>
+              </div>
+              <button class="history-item-delete" @click.stop="deleteSession(session.id)" title="Delete">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18 6L6 18M6 6l12 12"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div v-if="sessionHistory.length > 0" class="history-footer">
+            <button class="history-clear" @click="clearHistory">Clear all history</button>
+          </div>
+        </div>
+      </div>
+    </transition>
 
     <canvas ref="splineCanvas" class="spline-bg" :class="{ 'spline-zoom': personalizing }"></canvas>
 
@@ -25,14 +77,29 @@
         <!-- Top-left: AI Voice -->
         <div class="p-card top-left">
           <h3 class="p-card-title">AI Voice</h3>
-          <p class="p-card-desc">Select the vocal tone and accent for your Socratic guide.</p>
+          <p class="p-card-desc">{{ voices.find(v => v.name === selectedVoice)?.description || 'Choose your Socratic guide.' }}</p>
           <div class="p-dropdown-wrapper">
             <button class="p-dropdown-btn" @click="voiceOpen = !voiceOpen">
-              <span>{{ selectedVoice }}</span>
+              <span class="voice-btn-label">
+                <span class="voice-name">{{ selectedVoice }}</span>
+                <span class="voice-style">{{ voices.find(v => v.name === selectedVoice)?.style }}</span>
+              </span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
             </button>
-            <div v-if="voiceOpen" class="p-dropdown-menu">
-              <button v-for="v in voices" :key="v" class="p-dropdown-item" :class="{ active: selectedVoice === v }" @click="selectedVoice = v; voiceOpen = false">{{ v }}</button>
+            <div v-if="voiceOpen" class="p-dropdown-menu voice-dropdown-menu">
+              <button
+                v-for="v in voices"
+                :key="v.name"
+                class="p-dropdown-item voice-dropdown-item"
+                :class="{ active: selectedVoice === v.name }"
+                @click="selectedVoice = v.name; voiceOpen = false"
+              >
+                <span class="voice-item-header">
+                  <span class="voice-item-name">{{ v.name }}</span>
+                  <span class="voice-item-style">{{ v.style }}</span>
+                </span>
+                <span class="voice-item-desc">{{ v.description }}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -40,14 +107,54 @@
         <!-- Top-right: Teaching Style -->
         <div class="p-card top-right">
           <h3 class="p-card-title">Teaching Style</h3>
-          <p class="p-card-desc">How the AI guides your learning journey.</p>
+          <p class="p-card-desc">
+            <span v-for="(trait, i) in (teachingStyles.find(s => s.name === selectedStyle)?.traits ?? [])" :key="i">
+              {{ trait }}<span v-if="i < (teachingStyles.find(s => s.name === selectedStyle)?.traits.length ?? 1) - 1"> · </span>
+            </span>
+          </p>
           <div class="p-dropdown-wrapper">
             <button class="p-dropdown-btn" @click="styleOpen = !styleOpen">
               <span>{{ selectedStyle }}</span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
             </button>
-            <div v-if="styleOpen" class="p-dropdown-menu">
-              <button v-for="s in teachingStyles" :key="s" class="p-dropdown-item" :class="{ active: selectedStyle === s }" @click="selectedStyle = s; styleOpen = false">{{ s }}</button>
+            <div v-if="styleOpen" class="p-dropdown-menu style-dropdown-menu">
+              <button
+                v-for="s in teachingStyles"
+                :key="s.name"
+                class="p-dropdown-item style-dropdown-item"
+                :class="{ active: selectedStyle === s.name }"
+                @click="selectedStyle = s.name; styleOpen = false"
+              >
+                <span class="style-item-name">{{ s.name }}</span>
+                <span class="style-item-traits">{{ s.traits.join(' · ') }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom-center: Learning Mode -->
+        <div class="p-card bottom-center">
+          <h3 class="p-card-title">Learning Mode</h3>
+          <p class="p-card-desc">{{ learningModes.find(m => m.id === selectedLearningMode)?.desc || 'Choose your learning approach.' }}</p>
+          <div class="p-dropdown-wrapper">
+            <button class="p-dropdown-btn" @click="learningOpen = !learningOpen">
+              <span class="voice-btn-label">
+                <span class="voice-name">{{ learningModes.find(m => m.id === selectedLearningMode)?.label }}</span>
+                <span class="voice-style">{{ learningModes.find(m => m.id === selectedLearningMode)?.tag }}</span>
+              </span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div v-if="learningOpen" class="p-dropdown-menu p-dropdown-menu--up style-dropdown-menu">
+              <button
+                v-for="mode in learningModes"
+                :key="mode.id"
+                class="p-dropdown-item style-dropdown-item"
+                :class="{ active: selectedLearningMode === mode.id }"
+                @click="selectedLearningMode = mode.id; learningOpen = false"
+              >
+                <span class="style-item-name">{{ mode.label }}</span>
+                <span class="style-item-traits">{{ mode.tag }}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -55,14 +162,23 @@
         <!-- Bottom-left: Personality -->
         <div class="p-card bottom-left">
           <h3 class="p-card-title">Personality</h3>
-          <p class="p-card-desc">Set the temperament of your AI companion.</p>
+          <p class="p-card-desc">{{ personalities.find(p => p.name === selectedPersonality)?.traits[0] || 'Set the temperament of your AI companion.' }}</p>
           <div class="p-dropdown-wrapper">
             <button class="p-dropdown-btn" @click="personalityOpen = !personalityOpen">
               <span>{{ selectedPersonality }}</span>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
             </button>
-            <div v-if="personalityOpen" class="p-dropdown-menu p-dropdown-menu--up">
-              <button v-for="p in personalities" :key="p" class="p-dropdown-item" :class="{ active: selectedPersonality === p }" @click="selectedPersonality = p; personalityOpen = false">{{ p }}</button>
+            <div v-if="personalityOpen" class="p-dropdown-menu p-dropdown-menu--up style-dropdown-menu">
+              <button
+                v-for="p in personalities"
+                :key="p.name"
+                class="p-dropdown-item style-dropdown-item"
+                :class="{ active: selectedPersonality === p.name }"
+                @click="selectedPersonality = p.name; personalityOpen = false"
+              >
+                <span class="style-item-name">{{ p.name }}</span>
+                <span class="style-item-traits">{{ p.traits[0] }}</span>
+              </button>
             </div>
           </div>
         </div>
@@ -82,7 +198,24 @@
               <span class="p-toggle-thumb"></span>
             </button>
           </div>
-          <p class="p-card-desc">Allow the AI to politely interrupt when you veer off-topic or make a logical fallacy during live voice sessions.</p>
+          <p class="p-card-desc">Choose which triggers allow the AI to interrupt during live voice sessions.</p>
+          <transition name="dropdown">
+            <div v-if="dynamicInterruptions" class="interruption-modes interruption-modes--overlay">
+              <button
+                v-for="opt in interruptionModeOptions"
+                :key="opt.id"
+                class="interruption-chip"
+                :class="{ active: activeInterruptionModes.includes(opt.id) }"
+                @click="activeInterruptionModes.includes(opt.id)
+                  ? activeInterruptionModes.splice(activeInterruptionModes.indexOf(opt.id), 1)
+                  : activeInterruptionModes.push(opt.id)"
+                :title="opt.desc"
+              >
+                <svg v-if="activeInterruptionModes.includes(opt.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                {{ opt.label }}
+              </button>
+            </div>
+          </transition>
         </div>
 
       </div>
@@ -201,6 +334,23 @@
                   <span class="toggle-thumb"></span>
                 </button>
               </div>
+              <transition name="dropdown">
+                <div v-if="interruptionMode" class="interruption-modes">
+                  <button
+                    v-for="opt in interruptionModeOptions"
+                    :key="opt.id"
+                    class="interruption-chip"
+                    :class="{ active: activeInterruptionModes.includes(opt.id) }"
+                    @click="activeInterruptionModes.includes(opt.id)
+                      ? activeInterruptionModes.splice(activeInterruptionModes.indexOf(opt.id), 1)
+                      : activeInterruptionModes.push(opt.id)"
+                    :title="opt.desc"
+                  >
+                    <svg v-if="activeInterruptionModes.includes(opt.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                    {{ opt.label }}
+                  </button>
+                </div>
+              </transition>
             </div>
           </template>
         </div>
@@ -221,7 +371,8 @@
           <path :d="transcriptVisible ? 'M9 18l6-6-6-6' : 'M15 18l-6-6 6-6'"/>
         </svg>
       </button>
-      <div class="right-panels">
+      <!-- Voice session: transcript + fallback -->
+      <div v-if="isVoiceSession" class="right-panels">
         <div class="transcript-panel">
           <div class="transcript-header">
             <span class="transcript-label">Transcript</span>
@@ -256,6 +407,34 @@
               :disabled="!isConnected"
             />
             <button class="fallback-send" type="submit" :disabled="!fallbackInput.trim() || !isConnected">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+              </svg>
+            </button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Non-voice session: chat -->
+      <div v-else class="right-panels">
+        <div class="transcript-panel chat-panel">
+          <div class="transcript-header">
+            <span class="transcript-label">Chat</span>
+          </div>
+          <div class="transcript-body" ref="transcriptBody">
+            <div v-if="chatMessages.length === 0" class="transcript-empty">
+              Ask your AI tutor anything about your session topic.
+            </div>
+            <div v-for="(msg, i) in chatMessages" :key="i" class="transcript-msg" :class="msg.role">
+              <span class="msg-role">{{ msg.role === 'user' ? 'You' : 'Socratica' }}</span>
+              <p class="msg-text">{{ msg.text }}</p>
+            </div>
+          </div>
+        </div>
+        <div class="fallback-panel">
+          <form class="fallback-form" @submit.prevent="sendChat">
+            <input v-model="chatInput" class="fallback-input" type="text" placeholder="Message Socratica..." autocomplete="off" />
+            <button class="fallback-send" type="submit" :disabled="!chatInput.trim()">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
               </svg>
@@ -346,6 +525,11 @@ const modeOptions = [
 const voiceSessions = ['Presentation Prep', 'Socratic Evaluation', 'Interview Prep']
 const isVoiceSession = computed(() => voiceSessions.includes(selectedMode.value))
 
+// Chat (non-voice sessions)
+const chatMessages = ref<{ role: 'user' | 'ai'; text: string }[]>([])
+const chatInput = ref('')
+
+
 const sessionVisible = ref(true)
 const transcriptVisible = ref(true)
 const personalizing = ref(false)
@@ -355,13 +539,57 @@ const personalizing = ref(false)
 const voiceOpen = ref(false)
 const styleOpen = ref(false)
 const personalityOpen = ref(false)
-const selectedVoice = ref('Marcus (Authoritative)')
-const selectedStyle = ref('Socratic Method')
-const selectedPersonality = ref('Analytical & Precise')
+const learningOpen = ref(false)
+const selectedVoice = ref('Socrates')
+const selectedStyle = ref('Socratic Challenger')
+const selectedPersonality = ref('Analytical')
 const dynamicInterruptions = ref(true)
-const voices = ['Marcus (Authoritative)', 'Sophia (Warm)', 'Atlas (Deep)', 'Nova (Bright)']
-const teachingStyles = ['Socratic Method', 'Direct Instruction', 'Debate Partner', 'Gentle Guide']
-const personalities = ['Analytical & Precise', 'Empathetic & Patient', 'Challenging & Direct', 'Enthusiastic']
+const learningModes = [
+  { id: 'explorer',   label: 'Explorer',   tag: 'Curiosity driven',              desc: 'Follow your curiosity — the AI adapts to where your questions lead.' },
+  { id: 'apprentice', label: 'Apprentice', tag: 'Guided learning',               desc: 'Step-by-step guidance with scaffolded support throughout the session.' },
+  { id: 'scholar',    label: 'Scholar',    tag: 'Conceptual depth',              desc: 'Deep conceptual questioning that builds rigorous understanding.' },
+  { id: 'mastery',    label: 'Mastery',    tag: 'Debate & interruptions',        desc: 'Hard questions, active debate, and real-time interruptions for peak challenge.' },
+]
+const selectedLearningMode = ref('explorer')
+const interruptionModeOptions = [
+  { id: 'logical-fallacy',  label: 'Logical Fallacy Detector',              desc: 'Catches flawed reasoning in real time' },
+  { id: 'off-topic',        label: 'Off-Topic Redirector',                  desc: 'Brings you back when you stray' },
+  { id: 'confidence',       label: 'Confidence Challenge',                  desc: 'Pushes back when you sound uncertain' },
+  { id: 'clarification',    label: 'Clarification Trigger',                 desc: 'Asks you to elaborate on vague points' },
+  { id: 'silence-breaker',  label: 'Silence Breaker',                       desc: 'Prompts you if you pause too long' },
+]
+const activeInterruptionModes = ref<string[]>(['logical-fallacy', 'off-topic'])
+const voices: { name: string; style: string; description: string }[] = [
+  { name: 'Socrates',  style: 'Philosophical', description: 'Constantly asks probing questions and challenges assumptions' },
+  { name: 'Athena',   style: 'Strategic',      description: 'Structured, analytical, and focused on clarity' },
+  { name: 'Leonardo', style: 'Creative',       description: 'Encourages exploration and unconventional thinking' },
+  { name: 'Curie',    style: 'Scientific',     description: 'Precise, logical, evidence-driven' },
+  { name: 'Seneca',   style: 'Reflective',     description: 'Calm, thoughtful, emphasizes reasoning and clarity' },
+  { name: 'Tesla',    style: 'Visionary',      description: 'Connects concepts and encourages deep insight' },
+  { name: 'Aristotle',style: 'Systematic',     description: 'Focuses on definitions, categories, and structured knowledge' },
+  { name: 'Maya',     style: 'Empathetic',     description: 'Supportive, patient, encouraging confidence' },
+  { name: 'Darwin',   style: 'Curious',        description: 'Always asking "why" and pushing deeper inquiry' },
+  { name: 'Hypatia',  style: 'Mathematical',   description: 'Analytical and precise reasoning' },
+]
+const teachingStyles: { name: string; traits: string[] }[] = [
+  { name: 'Socratic Challenger', traits: ['Deep questioning', 'Interrupts weak reasoning', 'Forces clarification'] },
+  { name: 'Debate Partner',      traits: ['Challenges ideas', 'Argues counterpoints', 'Tests logical consistency'] },
+  { name: 'Concept Builder',     traits: ['Builds understanding step by step', 'Helps construct mental models'] },
+  { name: 'Exam Coach',          traits: ['Rapid-fire questions', 'Simulates exam pressure'] },
+  { name: 'Gentle Guide',        traits: ['Encouraging', 'Slow paced', 'Ideal for beginners'] },
+  { name: 'Critical Reviewer',   traits: ['Focuses on weaknesses', 'Identifies gaps in reasoning'] },
+  { name: 'Story Teacher',       traits: ['Explains through metaphors and examples'] },
+]
+const personalities: { name: string; traits: string[] }[] = [
+  { name: 'Analytical',    traits: ['Focuses on logic and precision'] },
+  { name: 'Provocative',   traits: ['Challenges assumptions aggressively'] },
+  { name: 'Patient',       traits: ['Gives time to think'] },
+  { name: 'Playful',       traits: ['Uses humor and metaphors'] },
+  { name: 'Minimalist',    traits: ['Short, sharp prompts'] },
+  { name: 'Motivational',  traits: ['Encourages persistence'] },
+  { name: 'Philosophical', traits: ['Connects ideas to broader thinking'] },
+  { name: 'Skeptical',     traits: ['Always questions certainty'] },
+]
 
 const sessionTitle = ref('')
 const sessionTopic = ref('')
@@ -369,6 +597,7 @@ const uploadedFiles = ref<File[]>([])
 const isDragging = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const fallbackInput = ref('')
+let voiceSessionSaved = false
 
 // ─── Live voice reactive state ────────────────────────────────────────────────
 
@@ -379,6 +608,56 @@ const isTranscribing = ref(false)
 const transcriptEntries = ref<TranscriptEntry[]>([])
 const voiceInputBlocked = ref(false)
 const interruptingModeEnabled = ref(false)
+
+// Chat send (non-voice sessions)
+function sendChat() {
+  const text = chatInput.value.trim()
+  if (!text) return
+  if (chatMessages.value.length === 0) saveSessionToHistory()
+  chatMessages.value.push({ role: 'user', text })
+  chatInput.value = ''
+  void scrollTranscriptToBottom()
+}
+
+// Session history (localStorage)
+const HISTORY_KEY = 'socratica_session_history'
+
+interface SessionRecord {
+  id: string
+  date: string
+  type: string
+  title: string
+  topic: string
+  messageCount: number
+}
+
+const sessionHistory = ref<SessionRecord[]>(
+  JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]')
+)
+const historyOpen = ref(false)
+
+function saveSessionToHistory() {
+  const record: SessionRecord = {
+    id: Date.now().toString(),
+    date: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    type: selectedMode.value,
+    title: sessionTitle.value.trim(),
+    topic: sessionTopic.value.trim().slice(0, 80),
+    messageCount: isVoiceSession.value ? transcriptEntries.value.length : chatMessages.value.length,
+  }
+  sessionHistory.value.unshift(record)
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(sessionHistory.value))
+}
+
+function deleteSession(id: string) {
+  sessionHistory.value = sessionHistory.value.filter(s => s.id !== id)
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(sessionHistory.value))
+}
+
+function clearHistory() {
+  sessionHistory.value = []
+  localStorage.removeItem(HISTORY_KEY)
+}
 
 // ─── Computed ─────────────────────────────────────────────────────────────────
 
@@ -1819,7 +2098,7 @@ onBeforeUnmount(() => {
 /* Save button */
 .p-save-wrap {
   position: absolute;
-  bottom: 6%;
+  bottom: 11%;
   left: 50%;
   transform: translateX(-50%);
   pointer-events: all;
@@ -1859,13 +2138,15 @@ onBeforeUnmount(() => {
   pointer-events: all;
   display: flex;
   flex-direction: column;
+  z-index: 1;
   gap: 0.4rem;
 }
 
-.top-left    { top: 24%;    left: 24%; }
-.top-right   { top: 24%;    right: 24%; }
-.bottom-left { bottom: 18%; left: 18%; }
-.bottom-right{ bottom: 18%; right: 18%; }
+.top-left     { top: 24%;    left: 34%; }
+.top-right    { top: 32%;    right: 20%; }
+.bottom-left  { bottom: 36%; left: 14%; }
+.bottom-right { top: 58%; right: 12%; }
+.bottom-center{ bottom: 12%; left: 18%; }
 
 .p-card-title {
   font-family: 'Red Hat Display', sans-serif;
@@ -1923,17 +2204,22 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.p-card:has(.p-dropdown-menu) {
+  z-index: 100;
+}
+
 .p-dropdown-menu {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
   right: 0;
-  background: rgba(0, 0, 0, 0.7);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(5, 5, 5, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 14px;
   overflow: hidden;
-  z-index: 50;
+  z-index: 300;
 }
 
 .p-dropdown-menu--up {
@@ -1947,18 +2233,108 @@ onBeforeUnmount(() => {
   padding: 0.65rem 0.85rem;
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  color: rgba(247, 247, 242, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  color: rgba(247, 247, 242, 0.85);
   font-family: 'Red Hat Display', sans-serif;
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   text-align: left;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
 }
 
 .p-dropdown-item:last-child { border-bottom: none; }
-.p-dropdown-item:hover { background: rgba(255, 255, 255, 0.06); color: #F7F7F2; }
-.p-dropdown-item.active { color: rgba(247, 247, 242, 0.95); }
+.p-dropdown-item:hover { background: rgba(255, 255, 255, 0.08); color: #F7F7F2; }
+.p-dropdown-item.active { color: #F7F7F2; }
+
+/* Voice button selected display */
+.voice-btn-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
+.voice-name {
+  font-weight: 600;
+  color: rgba(247, 247, 242, 0.9);
+}
+
+.voice-style {
+  font-size: 0.73rem;
+  color: rgba(203, 155, 81, 0.75);
+  font-weight: 400;
+}
+
+/* Voice dropdown items */
+.voice-dropdown-menu {
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.voice-dropdown-item {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 0.2rem;
+  padding: 0.7rem 0.85rem !important;
+}
+
+.voice-item-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
+.voice-item-name {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: rgba(247, 247, 242, 0.95);
+}
+
+.voice-item-style {
+  font-size: 0.72rem;
+  color: rgba(203, 155, 81, 0.85);
+  font-weight: 400;
+}
+
+.voice-item-desc {
+  font-size: 0.71rem;
+  color: rgba(247, 247, 242, 0.55);
+  line-height: 1.4;
+  font-weight: 400;
+}
+
+/* Style dropdown */
+.style-dropdown-menu {
+  max-height: 260px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  z-index: 200 !important;
+  position: relative;
+}
+
+.style-dropdown-item {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 0.15rem;
+  padding: 0.65rem 0.85rem !important;
+}
+
+.style-item-name {
+  font-weight: 600;
+  color: rgba(247, 247, 242, 0.95);
+  font-size: 0.85rem;
+}
+
+.style-item-traits {
+  font-size: 0.72rem;
+  color: rgba(247, 247, 242, 0.55);
+  font-weight: 400;
+  line-height: 1.3;
+}
 
 /* Personalize toggle */
 .p-toggle {
@@ -2002,5 +2378,302 @@ onBeforeUnmount(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* Interruption mode chips */
+.interruption-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.6rem;
+}
+
+.interruption-modes--overlay {
+  margin-top: 0.75rem;
+}
+
+.interruption-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(247, 247, 242, 0.45);
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.72rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  white-space: nowrap;
+}
+
+.interruption-chip svg {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: rgba(247, 247, 242, 0.85);
+}
+
+.interruption-chip:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(247, 247, 242, 0.75);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.interruption-chip.active {
+  border-color: rgba(247, 247, 242, 0.4);
+  background: rgba(247, 247, 242, 0.1);
+  color: rgba(247, 247, 242, 0.9);
+}
+
+/* History button */
+.history-btn {
+  position: fixed;
+  top: 1.9rem;
+  right: 2rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+  padding: 0.5rem 1rem;
+  color: rgba(247, 247, 242, 0.6);
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.history-btn svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.history-btn:hover {
+  color: #F7F7F2;
+  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* History overlay */
+.history-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  padding: 2rem;
+}
+
+.history-panel {
+  width: 100%;
+  max-width: 640px;
+  max-height: 80vh;
+  background: rgba(10, 10, 10, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.5rem 1.75rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+}
+
+.history-title {
+  font-family: "Times New Roman", "Times", serif;
+  font-size: 1.4rem;
+  font-weight: 400;
+  color: #F7F7F2;
+  margin: 0;
+  letter-spacing: 0.04em;
+}
+
+.history-close {
+  background: transparent;
+  border: none;
+  color: rgba(247, 247, 242, 0.4);
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  transition: color 0.2s ease;
+}
+
+.history-close svg { width: 18px; height: 18px; }
+.history-close:hover { color: #F7F7F2; }
+
+.history-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+}
+
+.history-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 3rem 1rem;
+  color: rgba(247, 247, 242, 0.25);
+  text-align: center;
+}
+
+.history-empty svg {
+  width: 36px;
+  height: 36px;
+  opacity: 0.4;
+}
+
+.history-empty p {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.history-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.history-item-type {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(203, 155, 81, 0.8);
+  background: rgba(203, 155, 81, 0.1);
+  border: 1px solid rgba(203, 155, 81, 0.2);
+  border-radius: 9999px;
+  padding: 0.2rem 0.65rem;
+  white-space: nowrap;
+}
+
+.history-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.history-item-title {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: rgba(247, 247, 242, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-item-topic {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.76rem;
+  color: rgba(247, 247, 242, 0.35);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-item-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.15rem;
+  flex-shrink: 0;
+}
+
+.history-item-date {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.72rem;
+  color: rgba(247, 247, 242, 0.3);
+}
+
+.history-item-count {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.7rem;
+  color: rgba(247, 247, 242, 0.2);
+}
+
+.history-item-delete {
+  background: transparent;
+  border: none;
+  color: rgba(247, 247, 242, 0.2);
+  cursor: pointer;
+  padding: 0.2rem;
+  display: flex;
+  transition: color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.history-item-delete svg { width: 13px; height: 13px; }
+.history-item-delete:hover { color: rgba(247, 247, 242, 0.7); }
+
+.history-footer {
+  padding: 1rem 1.75rem 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.history-clear {
+  background: transparent;
+  border: none;
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.78rem;
+  color: rgba(247, 247, 242, 0.25);
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  transition: color 0.2s ease;
+}
+
+.history-clear:hover { color: rgba(247, 247, 242, 0.6); }
+
+/* History transition */
+.history-enter-active,
+.history-leave-active {
+  transition: opacity 0.25s ease;
+}
+.history-enter-from,
+.history-leave-to {
+  opacity: 0;
 }
 </style>
