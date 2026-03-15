@@ -36,7 +36,7 @@
             <h3 class="font-semibold text-gray-900 mb-2">Backend</h3>
             <ul class="text-gray-700 text-sm space-y-1">
               <li>Java 17 + Spring Boot</li>
-              <li>PostgreSQL Database</li>
+              <li>MongoDB Database</li>
               <li>Gemini API Integration</li>
               <li>JWT Authentication</li>
             </ul>

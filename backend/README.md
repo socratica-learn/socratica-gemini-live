@@ -6,7 +6,7 @@ Spring Boot backend application for the Socratica AI-powered study assistant.
 
 - **Java 17**
 - **Spring Boot 3.2**
-- **PostgreSQL 14+**
+- **MongoDB 7+**
 - **Maven**
 - **Spring Security** (JWT Authentication)
 - **Spring Data JPA**
@@ -18,22 +18,13 @@ Spring Boot backend application for the Socratica AI-powered study assistant.
 
 - JDK 17 or higher
 - Maven 3.9+
-- PostgreSQL 14+
+- MongoDB 7+
 
 ### Setup
 
-1. Create PostgreSQL database:
-```sql
-CREATE DATABASE socratica_dev;
-CREATE USER socratica_user WITH PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE socratica_dev TO socratica_user;
-```
-
-2. Create `.env` file in the `backend/` directory:
+1. Create `.env` file in the `backend/` directory:
 ```bash
-DATABASE_URL=jdbc:postgresql://localhost:5432/socratica_dev
-DATABASE_USER=socratica_user
-DATABASE_PASSWORD=your_password
+SPRING_DATA_MONGODB_URI=mongodb://localhost:27017/socratica_dev
 JWT_SECRET=your_jwt_secret_key
 ```
 
@@ -107,9 +98,7 @@ backend/
 
 | Variable | Description | Required |
 |----------|-------------|----------|
-| `DATABASE_URL` | PostgreSQL connection URL | Yes |
-| `DATABASE_USER` | Database username | Yes |
-| `DATABASE_PASSWORD` | Database password | Yes |
+| `SPRING_DATA_MONGODB_URI` | MongoDB connection URL | Yes |
 | `JWT_SECRET` | Secret key for JWT tokens | Yes |
 | `JWT_EXPIRATION` | JWT token expiration (ms) | No (default: 3600000) |
 

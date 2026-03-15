@@ -15,9 +15,8 @@ This guide will help you set up your local development environment for Socratica
   - Download: https://maven.apache.org/download.cgi
   - Verify: `mvn -version`
 
-- **PostgreSQL 14+**
-  - Download: https://www.postgresql.org/download/
-  - Verify: `psql --version`
+- **MongoDB 7+**
+  - Verify: `mongod --version`
 
 #### Frontend Development
 - **Node.js 18+ (LTS)**
@@ -58,35 +57,16 @@ cd socratica
 
 ### 2. Backend Setup
 
-#### Configure PostgreSQL
-
-1. Create a database:
-```sql
-CREATE DATABASE socratica_dev;
-CREATE USER socratica_user WITH PASSWORD 'your_password';
-GRANT ALL PRIVILEGES ON DATABASE socratica_dev TO socratica_user;
-```
-
-2. Install pgvector extension:
-```sql
-\c socratica_dev
-CREATE EXTENSION vector;
-```
-
 #### Configure Application Properties
 
 Create `backend/src/main/resources/application-dev.yml`:
 
 ```yaml
 spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/socratica_dev
-    username: socratica_user
-    password: your_password
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: true
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/socratica_dev
+      auto-index-creation: true
 
 logging:
   level:
@@ -97,9 +77,7 @@ logging:
 
 Create `.env` file in `backend/` directory:
 ```bash
-DATABASE_URL=jdbc:postgresql://localhost:5432/socratica_dev
-DATABASE_USER=socratica_user
-DATABASE_PASSWORD=your_password
+SPRING_DATA_MONGODB_URI=mongodb://localhost:27017/socratica_dev
 ```
 
 **Note**: Never commit `.env` files to Git!
@@ -155,7 +133,7 @@ docker-compose up -d
 This will start:
 - Backend on `http://localhost:8080`
 - Frontend on `http://localhost:5173`
-- PostgreSQL on `localhost:5432`
+- MongoDB on `localhost:27017`
 
 ### 2. View Logs
 
@@ -209,8 +187,8 @@ server.port: 8081
 
 **Issue**: Database connection refused  
 **Solution**: 
-- Ensure PostgreSQL is running: `sudo service postgresql start` (Linux) or start via app (Mac/Windows)
-- Verify credentials in `application-dev.yml`
+- Ensure MongoDB is running
+- Verify connection URI in `application-dev.yml`
 
 **Issue**: Maven dependencies not downloading  
 **Solution**:

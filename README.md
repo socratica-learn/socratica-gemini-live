@@ -45,8 +45,7 @@ Traditional studying often lacks the interactive element of having someone to di
 ### Backend
 - **Language**: Java 17+
 - **Framework**: Spring Boot 3.x
-- **Database**: PostgreSQL
-- **Vector Database**: pgvector for semantic search
+- **Database**: MongoDB
 - **AI Integration**: Gemini GenAI SDK
 - **Speech Services**: Gemini Live API
 - **Build Tool**: Maven
@@ -104,7 +103,7 @@ socratica/
 ### Prerequisites
 - Java 17 or higher
 - Node.js 18+ and npm/yarn
-- PostgreSQL 14+
+- MongoDB 7+
 - Docker (optional, for containerized development)
 
 ### Backend Setup

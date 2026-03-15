@@ -56,15 +56,9 @@ This page documents all the tools, frameworks, and technologies used in the Socr
     - Spring Validation (Input validation)
 
 ### Database
-- **PostgreSQL 14+**
-  - Primary database for structured data
-  - Website: https://www.postgresql.org/
-  - Features: ACID compliance, advanced indexing, JSON support
-
-- **pgvector**
-  - Vector similarity search extension for PostgreSQL
-  - Website: https://github.com/pgvector/pgvector
-  - Purpose: Semantic search for notes and study materials
+- **MongoDB**
+  - Primary database for application data and AI session histories
+  - Website: https://www.mongodb.com/
 
 ### AI & Machine Learning
 - **Gemini GenAI SDK**
@@ -307,13 +301,9 @@ This page documents all the tools, frameworks, and technologies used in the Socr
   - Website: https://insomnia.rest/
 
 ### Database Tools
-- **DBeaver**
-  - Universal database tool
-  - Website: https://dbeaver.io/
-
-- **pgAdmin**
-  - PostgreSQL-specific tool
-  - Website: https://www.pgadmin.org/
+- **MongoDB Compass**
+  - GUI for MongoDB
+  - Website: https://www.mongodb.com/products/compass
 
 ---
 
@@ -323,7 +313,6 @@ This page documents all the tools, frameworks, and technologies used in the Socr
 - [Spring Boot Guides](https://spring.io/guides)
 - [Vue 3 Documentation](https://vuejs.org/guide/introduction.html)
 - [TailwindCSS Docs](https://tailwindcss.com/docs)
-- [PostgreSQL Tutorial](https://www.postgresqltutorial.com/)
 
 ### Video Tutorials
 - [Spring Boot Tutorial - YouTube](https://www.youtube.com/results?search_query=spring+boot+tutorial)
@@ -337,7 +326,6 @@ This page documents all the tools, frameworks, and technologies used in the Socr
 |---------------|-----------------|---------------------|
 | Java | 17 | 17 or 21 LTS |
 | Spring Boot | 3.0 | 3.2+ |
-| PostgreSQL | 14 | 15+ |
 | Node.js | 18 | 20 LTS |
 | Vue | 3.0 | 3.4+ |
 | Docker | 20 | 24+ |
