@@ -1604,9 +1604,10 @@ const startLiveSession = async () => {
     serverMessageCount = 0
 
     // Connect through the backend proxy — the Gemini API key never leaves the server.
-    const apiBase = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'http://localhost:8080')
-    const wsBase = apiBase.replace(/^https/, 'wss').replace(/^http/, 'ws')
-    const wsUrl = `${wsBase}/api/ai/live/proxy`
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api'
+    const absoluteApiBase = new URL(apiBase, window.location.origin).href
+    const wsBase = absoluteApiBase.replace(/^https/, 'wss').replace(/^http/, 'ws')
+    const wsUrl = `${wsBase.replace(/\/$/, '')}/ai/live/proxy`
 
     let settled = false
     session = await new Promise<WebSocket>((resolve, reject) => {

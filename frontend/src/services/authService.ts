@@ -1,7 +1,7 @@
 import axios from 'axios'
 
-// Use proxy in development (Vite proxy), or full URL in production
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '/api' : 'http://localhost:8080/api')
+// Use environment variable from .env, fallback to /api if missing
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
 export interface SignUpRequest {
   name: string

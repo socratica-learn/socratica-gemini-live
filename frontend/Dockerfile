@@ -3,8 +3,6 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 # Accept build-time env vars so Vite can bake them into the JS bundle.
-# These must be ARGs (not ENV) so they are only available during the build.
-ARG VITE_API_BASE_URL=/api
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 # Copy package files

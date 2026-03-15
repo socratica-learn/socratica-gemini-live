@@ -106,7 +106,7 @@ npm install
 Create `frontend/.env.development`:
 
 ```bash
-VITE_API_BASE_URL=http://localhost:8080/api
+VITE_API_BASE_URL=/api
 VITE_APP_TITLE=Socratica Dev
 ```
 
