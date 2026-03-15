@@ -246,7 +246,7 @@ onBeforeUnmount(() => {
               </div>
               <h2 class="form-title get-started-title">Let Socratica adapt to the way you think and learn.</h2>
               <div class="get-started-wrap">
-                <router-link to="/post-auth" class="btn-get-started">
+                <router-link to="/build-your-socrate" class="btn-get-started">
                   <span class="btn-get-started-text">Get started with Socratica</span>
                   <span class="btn-get-started-arrow" aria-hidden="true">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">

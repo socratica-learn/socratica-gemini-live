@@ -28,12 +28,11 @@ onMounted(() => {
     const oauthSource = sessionStorage.getItem('oauth_source')
     sessionStorage.removeItem('oauth_source') // Clean up
     
-    // Redirect based on source: signup goes to personalize, login goes to post-auth
+    // Redirect based on source: signup goes to personalize, login goes to build-your-socrate
     if (oauthSource === 'signup') {
       router.push('/personalize')
     } else {
-      // Default to post-auth for login or unknown source
-      router.push('/post-auth')
+      router.push('/build-your-socrate')
     }
   } else {
     // No token received, redirect to signup
