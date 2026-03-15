@@ -50,7 +50,6 @@ socratica:
     secret: ${JWT_SECRET:your-very-secret-jwt-key-change-this-in-production}
     expiration: ${JWT_EXPIRATION:3600000} # 1 hour in milliseconds
   gemini:
-    api-key: ${GEMINI_API_KEY:}
     project-id: ${GOOGLE_CLOUD_PROJECT:}
     location: ${GOOGLE_CLOUD_REGION:europe-west4}
     model: ${GEMINI_MODEL:gemini-2.5-flash}

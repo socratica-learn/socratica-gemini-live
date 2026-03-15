@@ -17,7 +17,8 @@ services:
     environment:
       SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI:-mongodb://mongo:27017/socratica_dev}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-socratica_dev}
-      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      GOOGLE_CLOUD_REGION: ${GOOGLE_CLOUD_REGION:-europe-west4}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
       GEMINI_LIVE_MODEL: ${GEMINI_LIVE_MODEL:-gemini-live-2.5-flash-native-audio}
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-me}
@@ -34,6 +35,8 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-noreply@socratica.com}
+    volumes:
+      - ${HOME}/.config/gcloud:/root/.config/gcloud:ro
     ports:
       - "8080:8080"
     depends_on:

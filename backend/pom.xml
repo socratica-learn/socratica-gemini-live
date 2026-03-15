@@ -125,6 +125,13 @@
             <version>1.43.0</version>
         </dependency>
 
+        <!-- Google auth for Vertex AI websocket proxy -->
+        <dependency>
+            <groupId>com.google.auth</groupId>
+            <artifactId>google-auth-library-oauth2-http</artifactId>
+            <version>1.24.1</version>
+        </dependency>
+
         <!-- Spring Mail for email sending -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -209,4 +216,3 @@
         </plugins>
     </build>
 </project>
-

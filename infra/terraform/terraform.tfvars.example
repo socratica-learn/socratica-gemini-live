@@ -1,0 +1,15 @@
+organization_id             = "809804464459"
+project_id                  = "project-8d21f1f6-2009-4dcf-bff"
+region                      = "europe-west4"
+artifact_registry_repository = "socratica"
+backend_service_name        = "socratica-backend"
+frontend_service_name       = "socratica-frontend"
+
+# First apply should usually keep this false until Cloud Build has pushed images.
+deploy_services = false
+
+# The deployment script fills these on the second pass.
+backend_image      = ""
+frontend_image     = ""
+backend_public_url = ""
+frontend_public_url = ""

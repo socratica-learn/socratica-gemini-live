@@ -3,7 +3,9 @@ package com.socratica.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.socratica.service.GoogleAccessTokenService;
 import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -13,20 +15,18 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * WebSocket proxy handler that sits between the browser and the Gemini Live API.
+ * WebSocket proxy handler that sits between the browser and the Vertex AI Live API.
  *
  * The browser connects to /api/ai/live/proxy. This handler opens a corresponding
- * WebSocket to Gemini (injecting the server-side API key into the URL so the key
- * never reaches the browser) and forwards messages in both directions transparently.
+ * WebSocket to Vertex AI using server-side credentials and forwards messages in both
+ * directions transparently.
  *
  * The only transformation applied is injecting the configured model name into the
  * initial "setup" message that the browser sends, so the browser does not need to
@@ -34,18 +34,12 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 @Slf4j
+@RequiredArgsConstructor
 public class GeminiLiveProxyHandler extends TextWebSocketHandler {
-
-    private static final String GOOGLE_AI_WS_BASE =
-            "wss://generativelanguage.googleapis.com/ws/"
-            + "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent";
 
     private static final String VERTEX_AI_WS_BASE_TEMPLATE =
             "wss://%s-aiplatform.googleapis.com/ws/"
-            + "google.cloud.aiplatform.v1beta1.LlmBidiService/BidiGenerateContent";
-
-    @Value("${socratica.gemini.api-key:}")
-    private String geminiApiKey;
+            + "google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent";
 
     @Value("${socratica.gemini.project-id:}")
     private String projectId;
@@ -58,6 +52,7 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final GoogleAccessTokenService googleAccessTokenService;
 
     /** Maps browser session ID → open Gemini WebSocket. */
     private final Map<String, WebSocket> geminiSockets = new ConcurrentHashMap<>();
@@ -68,29 +63,24 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession browserSession) {
         log.debug("Browser WS connected: {}", browserSession.getId());
 
-        String geminiUrl;
-        WebSocket.Builder wsBuilder = httpClient.newWebSocketBuilder();
+        if (projectId == null || projectId.isBlank()) {
+            log.error("GOOGLE_CLOUD_PROJECT is not configured — rejecting proxy session {}", browserSession.getId());
+            sendErrorAndClose(browserSession, "GOOGLE_CLOUD_PROJECT is not configured on the server.");
+            return;
+        }
 
-        if (projectId != null && !projectId.isBlank()) {
-            // Vertex AI Path
-            geminiUrl = String.format(VERTEX_AI_WS_BASE_TEMPLATE, location);
-            log.debug("Using Vertex AI WebSocket endpoint: {}", geminiUrl);
-            // In a real production environment, we'd fetch an OAuth2 token.
-            // For now, we'll try to use the API key if provided, or assume ADC if running on GCP.
-            // Vertex AI WebSocket typically requires Bearer auth.
-            String apiKey = resolveApiKey();
-            if (!apiKey.isBlank()) {
-                geminiUrl += "?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
-            }
-        } else {
-            // Google AI Path
-            String apiKey = resolveApiKey();
-            if (apiKey.isBlank()) {
-                log.error("Gemini API key not configured — rejecting proxy session {}", browserSession.getId());
-                sendErrorAndClose(browserSession, "Gemini API key is not configured on the server.");
-                return;
-            }
-            geminiUrl = GOOGLE_AI_WS_BASE + "?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
+        String geminiUrl = String.format(VERTEX_AI_WS_BASE_TEMPLATE, location);
+        WebSocket.Builder wsBuilder = httpClient.newWebSocketBuilder();
+        log.debug("Using Vertex AI WebSocket endpoint: {}", geminiUrl);
+
+        try {
+            String accessToken = googleAccessTokenService.getCloudPlatformAccessToken();
+            wsBuilder.header("Authorization", "Bearer " + accessToken);
+            wsBuilder.header("x-goog-user-project", projectId);
+        } catch (RuntimeException e) {
+            log.error("Vertex AI auth failed for session {}: {}", browserSession.getId(), e.getMessage());
+            sendErrorAndClose(browserSession, "Failed to acquire Vertex AI credentials on the server.");
+            return;
         }
 
         wsBuilder.buildAsync(URI.create(geminiUrl), new GeminiListener(browserSession))
@@ -148,7 +138,7 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
                 return payload;
             }
             ObjectNode setup = (ObjectNode) root.get("setup");
-            String model = liveModel.startsWith("models/") ? liveModel : "models/" + liveModel;
+            String model = resolveVertexModelResource();
             setup.put("model", model);
             String modified = objectMapper.writeValueAsString(root);
             log.debug("Setup message for session {} — injected model '{}'", sessionId, model);
@@ -225,8 +215,18 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private String resolveApiKey() {
-        return geminiApiKey == null ? "" : geminiApiKey.trim();
+    private String resolveVertexModelResource() {
+        if (liveModel.startsWith("projects/")) {
+            return liveModel;
+        }
+        if (liveModel.startsWith("publishers/")) {
+            return String.format("projects/%s/locations/%s/%s", projectId, location, liveModel);
+        }
+        if (projectId == null || projectId.isBlank()) {
+            throw new IllegalStateException("GOOGLE_CLOUD_PROJECT must be set for Vertex AI live sessions.");
+        }
+        return String.format("projects/%s/locations/%s/publishers/google/models/%s",
+                projectId, location, liveModel);
     }
 
     private void sendErrorAndClose(WebSocketSession session, String message) {

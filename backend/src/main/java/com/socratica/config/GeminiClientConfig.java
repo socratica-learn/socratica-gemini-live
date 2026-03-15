@@ -7,19 +7,11 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * Provides a singleton {@link Client} bean for the Google Gen AI Java SDK.
- *
- * The API key is resolved from the application config
- * ({@code socratica.gemini.api-key}),
- * which is backed by the server-side {@code GEMINI_API_KEY} environment
- * variable.
+ * Provides a singleton {@link Client} bean for the Google Gen AI Java SDK using Vertex AI.
  */
 @Configuration
 @Slf4j
 public class GeminiClientConfig {
-
-    @Value("${socratica.gemini.api-key:}")
-    private String geminiApiKey;
 
     @Value("${socratica.gemini.project-id:}")
     private String projectId;
@@ -29,26 +21,16 @@ public class GeminiClientConfig {
 
     @Bean
     public Client geminiClient() {
-        if (projectId != null && !projectId.isBlank()) {
-            log.info("Initializing Gemini Client with Vertex AI: project={}, location={}", projectId, location);
-            return Client.builder()
-                    .vertexAI(true)
-                    .project(projectId)
-                    .location(location)
-                    .build();
+        if (projectId == null || projectId.isBlank()) {
+            throw new IllegalStateException(
+                    "GOOGLE_CLOUD_PROJECT must be set when using Vertex AI-backed Gemini services.");
         }
 
-        String key = resolveKey();
-        if (key.isBlank()) {
-            log.warn("Gemini API key is not configured — AI features will fail at runtime. "
-                    + "Set GEMINI_API_KEY or socratica.gemini.api-key.");
-            return Client.builder().apiKey("missing-gemini-api-key").build();
-        }
-        log.info("Initializing Gemini Client with Google AI (API Key)");
-        return Client.builder().apiKey(key).build();
-    }
-
-    private String resolveKey() {
-        return geminiApiKey == null ? "" : geminiApiKey.trim();
+        log.info("Initializing Gemini Client with Vertex AI: project={}, location={}", projectId, location);
+        return Client.builder()
+                .vertexAI(true)
+                .project(projectId)
+                .location(location)
+                .build();
     }
 }

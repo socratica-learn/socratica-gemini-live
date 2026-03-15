@@ -9,13 +9,6 @@ const api = axios.create({
   },
 })
 
-export interface LiveSessionTokenResponse {
-  token: string
-  model: string
-  expiresAt: string
-  newSessionExpiresAt: string
-}
-
 export interface AudioTranscriptionResponse {
   transcript: string
 }
@@ -76,11 +69,6 @@ const getLiveUserId = (): string => {
 }
 
 export const liveVoiceService = {
-  async createSessionToken(): Promise<LiveSessionTokenResponse> {
-    const response = await api.post<LiveSessionTokenResponse>('/ai/live/session-token')
-    return response.data
-  },
-
   async transcribeAudio(audio: Blob): Promise<string> {
     const formData = new FormData()
     formData.append('audio', audio, 'speech.wav')

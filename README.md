@@ -61,7 +61,9 @@ Traditional studying often lacks the interactive element of having someone to di
 ### DevOps
 - **CI/CD**: GitLab CI/CD
 - **Containerization**: Docker
-- **Orchestration**: Docker Compose (dev), Kubernetes (production)
+- **Build**: Cloud Build
+- **Runtime**: Docker Compose (dev), Cloud Run (deployment target)
+- **Infrastructure as Code**: Terraform
 
 ## 🏁 Getting Started
 
@@ -84,6 +86,8 @@ For testing the project locally, it is recommended to use Docker Compose.
 docker-compose up -d
 ```
 
+Before starting Docker Compose, run `gcloud auth application-default login` once if you want the backend's Vertex AI features to work locally. The backend container mounts your local `~/.config/gcloud` ADC file.
+
 Note: Keep in mind that social logins won't work with this setup. You can use the default email/password login or the live deployment.
 
 ### Backend Setup
@@ -99,6 +103,63 @@ cd frontend
 npm install
 npm run dev
 ```
+
+## ☁️ Deploy To GCP
+
+This repository includes Terraform and Cloud Build assets for deploying Socratica to:
+
+- **Organization**: `809804464459`
+- **Project**: `project-8d21f1f6-2009-4dcf-bff`
+- **Region**: `europe-west4`
+
+### Deployment Prerequisites
+
+- `gcloud` CLI installed and authenticated
+- `terraform` 1.5+
+- Access to the target GCP project and org policies
+- A populated `.env` file with the runtime secrets the backend needs
+
+The deployment reuses the MongoDB connection string from `.env`, so make sure `SPRING_DATA_MONGODB_URI` points at a reachable non-local database before deploying.
+
+### Deployment Steps
+
+1. Authenticate the Google Cloud CLI and refresh Application Default Credentials:
+
+```bash
+gcloud auth login --update-adc
+gcloud config set project project-8d21f1f6-2009-4dcf-bff
+```
+
+If your org enforces periodic re-authentication and you see an `invalid_rapt` error, rerun the command above before retrying the deployment.
+
+2. Review `.env` and confirm these values are set correctly:
+
+- `SPRING_DATA_MONGODB_URI`
+- `JWT_SECRET`
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `MICROSOFT_CLIENT_ID`
+- `MICROSOFT_CLIENT_SECRET`
+- `MAIL_USERNAME`
+- `MAIL_PASSWORD`
+
+3. Run the deployment script from the repo root:
+
+```bash
+./scripts/gcp/deploy.sh
+```
+
+4. The script will:
+
+- Bootstrap GCP services, IAM, service accounts, Secret Manager, and Artifact Registry with Terraform
+- Deploy the backend with Vertex AI access through its Cloud Run service account
+- Build and push backend and frontend images with Cloud Build
+- Deploy `socratica-backend` and `socratica-frontend` to Cloud Run
+- Re-run Terraform to wire the final Cloud Run URLs into backend CORS and OAuth redirect settings
+
+5. After the script completes, it prints the backend and frontend Cloud Run URLs.
+
+For the full deployment notes, see [docs/gcp-cloud-run-deploy.md](docs/gcp-cloud-run-deploy.md).
 
 
 ## 📋 Development Workflow

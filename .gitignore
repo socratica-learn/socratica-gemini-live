@@ -22,3 +22,10 @@ logs/
 tmp/
 temp/
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# Local GCP SDK scratch config
+.gcloud/

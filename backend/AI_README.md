@@ -181,14 +181,17 @@ These endpoints use Gemini through `AiService`.
 
 Required environment variables:
 
-- `GEMINI_API_KEY` (backend only)
+- `GOOGLE_CLOUD_PROJECT` (required)
+- Application Default Credentials via `gcloud auth application-default login` locally or a runtime service account in Cloud Run
+- `GOOGLE_CLOUD_REGION` (optional, default: `europe-west4`)
 - `GEMINI_MODEL` (optional, default: `gemini-3-flash-preview`)
 - `GEMINI_LIVE_MODEL` (optional, default: `gemini-live-2.5-flash-native-audio`)
 
 Docker (backend service):
 
 ```
-GEMINI_API_KEY: ${GEMINI_API_KEY}
+GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT}
+GOOGLE_CLOUD_REGION: ${GOOGLE_CLOUD_REGION}
 ```
 
 ---

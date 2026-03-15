@@ -447,13 +447,6 @@
 </template>
 
 <script setup lang="ts">
-import {
-  ActivityHandling,
-  GoogleGenAI,
-  Modality,
-  type LiveServerMessage,
-  type Session,
-} from '@google/genai'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Application } from '@splinetool/runtime'
@@ -470,6 +463,26 @@ interface TranscriptEntry {
   text: string
   time: string
   pending: boolean
+}
+
+interface LiveServerMessage {
+  setupComplete?: unknown
+  serverContent?: {
+    modelTurn?: { parts?: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }> }
+    turnComplete?: boolean
+    interrupted?: boolean
+    inputTranscription?: { text?: string; finished?: boolean }
+    outputTranscription?: { text?: string; finished?: boolean }
+  }
+  inputTranscription?: { text?: string; finished?: boolean }
+  outputTranscription?: { text?: string; finished?: boolean }
+}
+
+interface LiveSessionConnection {
+  socket: WebSocket
+  sendClientContent: (payload: Record<string, unknown>) => void
+  sendRealtimeInput: (payload: { audio: { data: string; mimeType: string } }) => void
+  close: () => void
 }
 
 interface SpeechRecognitionAlternativeLike { transcript: string }
@@ -670,7 +683,7 @@ const transcriptBody = ref<HTMLElement | null>(null)
 
 // ─── Non-reactive audio / session handles ────────────────────────────────────
 
-let session: Session | null = null
+let session: LiveSessionConnection | null = null
 let mediaStream: MediaStream | null = null
 let audioContext: AudioContext | null = null
 let sourceNode: MediaStreamAudioSourceNode | null = null
@@ -694,6 +707,19 @@ let accumulatedRecognitionText = ''
 let onModeBuffer = ''
 let onModeFlushTimer: ReturnType<typeof setTimeout> | null = null
 let userInterruptedSocratica = false
+
+const createLiveSessionConnection = (socket: WebSocket): LiveSessionConnection => ({
+  socket,
+  sendClientContent: (payload) => {
+    socket.send(JSON.stringify({ clientContent: payload }))
+  },
+  sendRealtimeInput: (payload) => {
+    socket.send(JSON.stringify({ realtimeInput: payload }))
+  },
+  close: () => {
+    socket.close()
+  },
+})
 
 // ─── Assistant-initiated interruption state ───────────────────────────────────
 
@@ -1249,7 +1275,7 @@ const stopAudioPipeline = async () => {
 // ─── Speech recognition ───────────────────────────────────────────────────────
 
 const detachRawSocketListener = () => {
-  const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
+  const rawSocket = session?.socket ?? null
   if (rawSocket && rawSocketListener) rawSocket.removeEventListener('message', rawSocketListener)
   rawSocketListener = null
 }
@@ -1361,42 +1387,52 @@ const startLiveSession = async () => {
   rawSocketMessageCount = 0
 
   try {
-    const tokenResponse = await liveVoiceService.createSessionToken()
+    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api'
+    const absoluteApiBase = new URL(apiBase, window.location.origin).href
+    const wsBase = absoluteApiBase.replace(/^https/, 'wss').replace(/^http/, 'ws')
+    const wsUrl = `${wsBase.replace(/\/$/, '')}/ai/live/proxy`
 
-    const ai = new GoogleGenAI({
-      apiKey: tokenResponse.token,
-      apiVersion: 'v1alpha',
-      httpOptions: { apiVersion: 'v1alpha' },
+    session = await new Promise<LiveSessionConnection>((resolve, reject) => {
+      const socket = new WebSocket(wsUrl)
+      let settled = false
+
+      socket.onopen = () => {
+        socket.send(JSON.stringify({
+          setup: {
+            systemInstruction: buildTutorPrompt(),
+            responseModalities: ['AUDIO'],
+            realtimeInputConfig: {
+              activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
+            },
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+          },
+        }))
+        settled = true
+        resolve(createLiveSessionConnection(socket))
+      }
+
+      socket.onmessage = (event) => {
+        void handleServerMessage(event)
+      }
+
+      socket.onerror = (event) => {
+        if (!settled) {
+          reject(new Error('Failed to connect to live session proxy'))
+          return
+        }
+        connectionState.value = 'error'
+        console.error('Gemini Live error:', event)
+      }
+
+      socket.onclose = () => {
+        if (connectionState.value === 'connected') {
+          connectionState.value = 'idle'
+        }
+      }
     })
 
-    session = await ai.live.connect({
-      model: tokenResponse.model,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        systemInstruction: buildTutorPrompt(),
-        realtimeInputConfig: {
-          activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-        },
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-      },
-      callbacks: {
-        onopen: () => {},
-        onmessage: (message) => { void handleServerMessage(message) },
-        onerror: (event) => {
-          connectionState.value = 'error'
-          console.error('Gemini Live error:', event)
-        },
-        onclose: (event) => {
-          if (connectionState.value === 'connected') {
-            connectionState.value = 'idle'
-          }
-        },
-      },
-    })
-
-    // Raw socket debug listener (first few messages).
-    const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
+    const rawSocket = session.socket
     if (rawSocket?.addEventListener) {
       rawSocketListener = (event: MessageEvent) => {
         rawSocketMessageCount++

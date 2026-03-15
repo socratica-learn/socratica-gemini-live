@@ -410,7 +410,7 @@ const router = useRouter()
 // Connection & session state
 const connectionState = ref<ConnectionState>('idle')
 const statusMessage = ref('Ready to start a live voice tutoring session.')
-const liveModel = ref('Waiting for backend token...')
+const liveModel = ref('Waiting for Vertex AI session...')
 
 // Voice activity state
 const isListening = ref(false)
