@@ -67,15 +67,10 @@ This page documents all the tools, frameworks, and technologies used in the Socr
   - Purpose: Semantic search for notes and study materials
 
 ### AI & Machine Learning
-- **OpenAI API**
-  - GPT-4 for conversational AI and Socratic questioning
-  - Whisper for speech-to-text
-  - TTS for text-to-speech
-  - Website: https://platform.openai.com/
-
-- **Anthropic Claude API** (Optional)
-  - Alternative LLM for nuanced questioning
-  - Website: https://www.anthropic.com/
+- **Gemini GenAI SDK**
+  - Gemini 2.5 Flash for conversational AI and Socratic questioning
+  - Gemini Live for speech-to-text
+  - Gemini Live for text-to-speech
 
 ### Build Tools
 - **Maven** or **Gradle**

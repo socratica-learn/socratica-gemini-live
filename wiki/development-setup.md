@@ -88,9 +88,6 @@ spring:
       ddl-auto: update
     show-sql: true
 
-openai:
-  api-key: ${OPENAI_API_KEY}
-
 logging:
   level:
     com.socratica: DEBUG
@@ -100,7 +97,6 @@ logging:
 
 Create `.env` file in `backend/` directory:
 ```bash
-OPENAI_API_KEY=your_openai_api_key_here
 DATABASE_URL=jdbc:postgresql://localhost:5432/socratica_dev
 DATABASE_USER=socratica_user
 DATABASE_PASSWORD=your_password
