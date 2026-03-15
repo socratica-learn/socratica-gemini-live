@@ -2302,7 +2302,7 @@ onBeforeUnmount(() => {
 
 /* Voice dropdown items */
 .voice-dropdown-menu {
-  max-height: 240px;
+  max-height: 380px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(255,255,255,0.1) transparent;
