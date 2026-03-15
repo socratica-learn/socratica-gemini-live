@@ -59,7 +59,16 @@
       </div>
     </transition>
 
-    <canvas ref="splineCanvas" class="spline-bg" :class="{ 'spline-zoom': personalizing }"></canvas>
+    <canvas ref="splineCanvas" class="spline-bg" :class="{ 'spline-zoom': personalizing, 'spline-speaking': isModelSpeaking }"></canvas>
+
+    <!-- Speaking pulse rings — appear behind the avatar when AI is talking -->
+    <transition name="speaking-rings">
+      <div v-if="isModelSpeaking" class="avatar-speaking-overlay" aria-hidden="true">
+        <div class="avatar-ring ring-1"></div>
+        <div class="avatar-ring ring-2"></div>
+        <div class="avatar-ring ring-3"></div>
+      </div>
+    </transition>
 
     <!-- Personalize button over avatar (voice sessions only) -->
     <div class="personalize-btn-wrap" :class="{ 'hidden-ui': personalizing || !isVoiceSession }">
@@ -183,13 +192,6 @@
           </div>
         </div>
 
-        <!-- Save button -->
-        <div class="p-save-wrap">
-          <button class="p-save-btn" @click="personalizing = false">
-            Save Configuration
-          </button>
-        </div>
-
         <!-- Bottom-right: Dynamic Interruptions -->
         <div class="p-card bottom-right">
           <div class="p-card-header-row">
@@ -217,6 +219,14 @@
             </div>
           </transition>
         </div>
+
+        <!-- Save button -->
+        <div class="p-save-wrap">
+          <button class="p-save-btn" @click="personalizing = false">
+            Save Configuration
+          </button>
+        </div>
+
 
       </div>
     </transition>
@@ -275,27 +285,57 @@
 
     <!-- Left: session wrapper (panel + tab slide together) -->
     <div class="session-wrapper" :class="{ hidden: !sessionVisible || !selectedMode, 'hidden-ui': personalizing }">
-      <div class="session-panel">
+      <div class="session-panel" :class="{ 'has-more': sessionBodyHasMore }">
         <div class="session-header">
           <span class="session-label">Session Details</span>
         </div>
-        <div class="session-body">
+        <div class="session-body" ref="sessionBodyEl" @scroll="onSessionBodyScroll">
           <div class="session-field">
-            <label class="field-label">Title</label>
-            <input v-model="sessionTitle" class="field-input" type="text" placeholder="e.g. Biology Exam Prep" />
-          </div>
-          <div class="session-field">
-            <label class="field-label">What do you want to study?</label>
-            <textarea
-              v-model="sessionTopic"
-              class="field-input field-textarea"
-              placeholder="e.g. Chapter 4 of my biology textbook, focusing on cell division..."
-              rows="3"
-            ></textarea>
+            <label class="field-label">Session Title</label>
+            <input v-model="sessionTitle" class="field-input" type="text" :placeholder="selectedMode === 'Interview Prep' ? 'e.g. Google SWE Interview' : selectedMode === 'Cover Letter Analysis' ? 'e.g. Product Manager at Stripe' : 'e.g. Biology Exam Prep'" />
           </div>
 
+          <!-- Interview Prep & Cover Letter Analysis specific fields -->
+          <template v-if="selectedMode === 'Interview Prep' || selectedMode === 'Cover Letter Analysis'">
+            <div class="session-field">
+              <label class="field-label">Company Description</label>
+              <textarea
+                v-model="companyDescription"
+                class="field-input field-textarea"
+                placeholder="e.g. Google is a multinational technology company focused on search, cloud computing, and AI..."
+                rows="3"
+              ></textarea>
+            </div>
+            <div class="session-field">
+              <label class="field-label">Job Description</label>
+              <textarea
+                v-model="jobDescription"
+                class="field-input field-textarea"
+                placeholder="e.g. We are looking for a Software Engineer with experience in distributed systems..."
+                rows="3"
+              ></textarea>
+            </div>
+          </template>
+
+          <!-- Default fields for other modes -->
+          <template v-else>
+            <div class="session-field">
+              <label class="field-label">What do you want to study?</label>
+              <textarea
+                v-model="sessionTopic"
+                class="field-input field-textarea"
+                placeholder="e.g. Chapter 4 of my biology textbook, focusing on cell division..."
+                rows="3"
+              ></textarea>
+            </div>
+          </template>
+
           <div class="session-field">
-            <label class="field-label">Files</label>
+            <label class="field-label">{{
+              selectedMode === 'Interview Prep' ? 'Upload your CV' :
+              selectedMode === 'Cover Letter Analysis' ? 'Upload your Cover Letter, Motivational Letter, Letter of Intent, etc.' :
+              'Files'
+            }}</label>
             <div class="file-drop" :class="{ dragging: isDragging }"
               @dragover.prevent="isDragging = true"
               @dragleave.prevent="isDragging = false"
@@ -323,36 +363,6 @@
               </li>
             </ul>
           </div>
-          <template v-if="isVoiceSession">
-            <div class="session-field">
-              <div class="toggle-row">
-                <div>
-                  <span class="field-label">Interruption Mode</span>
-                  <p class="field-hint">Allow the AI to interrupt you mid-sentence.</p>
-                </div>
-                <button class="toggle" :class="{ on: interruptingModeEnabled }" @click="toggleInterruptingMode">
-                  <span class="toggle-thumb"></span>
-                </button>
-              </div>
-              <transition name="dropdown">
-                <div v-if="interruptionMode" class="interruption-modes">
-                  <button
-                    v-for="opt in interruptionModeOptions"
-                    :key="opt.id"
-                    class="interruption-chip"
-                    :class="{ active: activeInterruptionModes.includes(opt.id) }"
-                    @click="activeInterruptionModes.includes(opt.id)
-                      ? activeInterruptionModes.splice(activeInterruptionModes.indexOf(opt.id), 1)
-                      : activeInterruptionModes.push(opt.id)"
-                    :title="opt.desc"
-                  >
-                    <svg v-if="activeInterruptionModes.includes(opt.id)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
-                    {{ opt.label }}
-                  </button>
-                </div>
-              </transition>
-            </div>
-          </template>
         </div>
       </div>
       <!-- Tab attached to right edge of wrapper -->
@@ -373,7 +383,43 @@
       </button>
       <!-- Voice session: transcript + fallback -->
       <div v-if="isVoiceSession" class="right-panels">
-        <div class="transcript-panel">
+
+        <!-- Camera panel (Presentation Prep only) -->
+        <div v-if="isPresentationPrep" class="camera-panel">
+          <div v-if="!isConnected && !cameraGranted" class="camera-prompt">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+            </svg>
+            <p>Your camera will activate when you start the session</p>
+          </div>
+          <div v-else-if="cameraError" class="camera-error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+            <p>{{ cameraError }}</p>
+          </div>
+          <video v-show="cameraGranted" ref="cameraVideoEl" class="camera-feed" autoplay playsinline muted></video>
+          <!-- Countdown overlay -->
+          <transition name="countdown-fade">
+            <div v-if="countdownValue !== null" class="countdown-overlay">
+              <transition name="countdown-pop" mode="out-in">
+                <span :key="countdownValue" class="countdown-number">{{ countdownValue }}</span>
+              </transition>
+            </div>
+          </transition>
+        </div>
+
+        <!-- Start Presentation button (shown during intro phase) -->
+        <div v-if="isPresentationPrep && isConnected && presentationPhase === 'intro'" class="start-presentation-wrap">
+          <button class="start-presentation-btn" @click="beginCountdown">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="5 3 19 12 5 21 5 3"/>
+            </svg>
+            Say "Start" or click here to begin
+          </button>
+        </div>
+
+        <div class="transcript-panel" :class="{ 'transcript-panel--compact': isPresentationPrep }">
           <div class="transcript-header">
             <span class="transcript-label">Transcript</span>
             <span class="transcript-status" :class="{ active: isConnected }">
@@ -593,6 +639,8 @@ const personalities: { name: string; traits: string[] }[] = [
 
 const sessionTitle = ref('')
 const sessionTopic = ref('')
+const companyDescription = ref('')
+const jobDescription = ref('')
 const uploadedFiles = ref<File[]>([])
 const isDragging = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -663,16 +711,48 @@ function clearHistory() {
 
 const isBusy = computed(() => connectionState.value === 'connecting')
 const isConnected = computed(() => connectionState.value === 'connected')
+const isPresentationPrep = computed(() => selectedMode.value === 'Presentation Prep')
+
+// Presentation Prep always has interruption mode off
+watch(isPresentationPrep, (val) => {
+  if (val) interruptingModeEnabled.value = false
+}, { immediate: true })
 
 // ─── Transcript scroll ref ────────────────────────────────────────────────────
 
 const transcriptBody = ref<HTMLElement | null>(null)
+const sessionBodyEl = ref<HTMLElement | null>(null)
+const sessionBodyHasMore = ref(false)
+
+function onSessionBodyScroll() {
+  const el = sessionBodyEl.value
+  if (!el) return
+  sessionBodyHasMore.value = el.scrollTop + el.clientHeight < el.scrollHeight - 4
+}
+
+watch(selectedMode, async () => {
+  await nextTick()
+  onSessionBodyScroll()
+})
+
+// ─── Camera state (Presentation Prep) ────────────────────────────────────────
+
+const cameraVideoEl = ref<HTMLVideoElement | null>(null)
+const cameraGranted = ref(false)
+const cameraError = ref('')
+let cameraStream: MediaStream | null = null
+let frameCaptureInterval: ReturnType<typeof setInterval> | null = null
+
+// ─── Presentation phase state ─────────────────────────────────────────────────
+const presentationPhase = ref<'intro' | 'countdown' | 'presenting'>('intro')
+const countdownValue = ref<number | null>(null)
 
 // ─── Non-reactive audio / session handles ────────────────────────────────────
 
 let session: Session | null = null
 let mediaStream: MediaStream | null = null
-let audioContext: AudioContext | null = null
+let audioContext: AudioContext | null = null       // mic pipeline only
+let playbackContext: AudioContext | null = null    // AI audio output — separate so macOS never routes it through the communications device
 let sourceNode: MediaStreamAudioSourceNode | null = null
 let processorNode: ScriptProcessorNode | null = null
 let sinkNode: GainNode | null = null
@@ -803,7 +883,14 @@ const addUserEntry = (text: string) => {
 
 const buildTutorPrompt = () => {
   const mode = selectedMode.value || 'Socratic Evaluation'
-  const topic = sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
+  const isInterviewPrep = mode === 'Interview Prep' || mode === 'Cover Letter Analysis'
+  const topic = isInterviewPrep
+    ? [
+        companyDescription.value.trim() ? `Company: ${companyDescription.value.trim()}.` : '',
+        jobDescription.value.trim() ? `Job description: ${jobDescription.value.trim()}.` : '',
+        sessionTitle.value.trim() ? `Role: ${sessionTitle.value.trim()}.` : '',
+      ].filter(Boolean).join(' ') || 'an unspecified role'
+    : sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
 
   const interruptBehavior = interruptingModeEnabled.value
     ? [
@@ -821,6 +908,20 @@ const buildTutorPrompt = () => {
         'Only stay silent when the student is clearly on the right track and building a solid explanation.',
       ].join(' ')
     : 'Always wait for the student to fully finish their explanation before you speak. Do not interrupt, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.'
+
+  if (mode === 'Presentation Prep') {
+    return [
+      'You are Socratica, a warm and encouraging real-time presentation coach in a live video and voice session.',
+      'You can see the student through their camera.',
+      topic ? `The student will be presenting on: ${topic}.` : '',
+      'The session has two phases:',
+      'PHASE 1 — INTRO: Greet the student warmly and ask them to briefly tell you about their presentation: the topic, the intended audience, and what they most want to improve (eye contact, body language, voice, content, confidence, etc.). Ask one natural follow-up question if it helps clarify their goal. Keep this intro conversational and brief.',
+      'When they are done explaining and ready to start, tell them: "Whenever you are ready, just say Start or click the Start button."',
+      'PHASE 2 — PRESENTATION (triggered when you receive [PRESENTATION STARTED]): Enter silent observation mode immediately. Do NOT speak or interrupt while the student is actively presenting. Only after they clearly stop speaking (several seconds of silence) or explicitly ask for feedback (e.g. "what do you think?" or "pause"), give concise spoken feedback — two to four sentences maximum.',
+      'Feedback should cover: (1) Eye contact — were they looking at the camera? (2) Body language — posture, gestures, fidgeting. (3) Voice — pace, tone, clarity, filler words. (4) Confidence and energy. (5) Content delivery — clarity and structure.',
+      'Be warm, specific, and encouraging. Always highlight one thing done well before suggesting one concrete improvement.',
+    ].filter(Boolean).join(' ')
+  }
 
   return [
     'You are Socratica, a spoken Socratic tutor in a real-time voice conversation.',
@@ -970,14 +1071,34 @@ const submitFallback = () => {
 const clearPlaybackQueue = () => {
   activePlaybackNodes.forEach((node) => { try { node.stop() } catch { /* ignore */ } })
   activePlaybackNodes = []
-  playbackCursor = audioContext ? audioContext.currentTime : 0
+  playbackCursor = playbackContext ? playbackContext.currentTime : 0
   isModelSpeaking.value = false
 }
 
 const ensureAudioContext = async () => {
+  // Mic pipeline context — may be routed by the OS to the comms device; keep separate.
   if (!audioContext) audioContext = new AudioContext()
   if (audioContext.state === 'suspended') await audioContext.resume()
   return audioContext
+}
+
+const ensurePlaybackContext = async () => {
+  // Dedicated playback context, created independently of the mic pipeline so that
+  // macOS / Chrome never routes it through the echo-cancellation / comms device.
+  if (!playbackContext) {
+    playbackContext = new AudioContext()
+    playbackCursor = 0
+  }
+  if (playbackContext.state === 'suspended') await playbackContext.resume()
+  // Warm up: play a silent 1-sample buffer to guarantee Chrome unlocks it.
+  if (playbackContext.state === 'running') {
+    const silence = playbackContext.createBuffer(1, 1, playbackContext.sampleRate)
+    const src = playbackContext.createBufferSource()
+    src.buffer = silence
+    src.connect(playbackContext.destination)
+    src.start()
+  }
+  return playbackContext
 }
 
 const decodeBase64ToArrayBuffer = (base64: string): ArrayBuffer => {
@@ -995,7 +1116,7 @@ const pcm16ToFloat32 = (buffer: ArrayBuffer): Float32Array => {
 }
 
 const enqueueAudioChunk = async (base64Audio: string) => {
-  const ctx = await ensureAudioContext()
+  const ctx = await ensurePlaybackContext()
   const floatSamples = pcm16ToFloat32(decodeBase64ToArrayBuffer(base64Audio))
   if (!floatSamples.length) return
 
@@ -1019,8 +1140,8 @@ const enqueueAudioChunk = async (base64Audio: string) => {
 
   source.onended = () => {
     activePlaybackNodes = activePlaybackNodes.filter((n) => n !== source)
-    if (!activePlaybackNodes.length && audioContext) {
-      playbackCursor = audioContext.currentTime
+    if (!activePlaybackNodes.length && playbackContext) {
+      playbackCursor = playbackContext.currentTime
       isModelSpeaking.value = false
     }
   }
@@ -1149,7 +1270,9 @@ const startMicrophone = async () => {
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   })
 
-  audioContext = new AudioContext()
+  // Reuse the AudioContext already created during user gesture; only create a new
+  // one if none exists (handles edge cases where the pipeline was fully torn down).
+  if (!audioContext) audioContext = new AudioContext()
   await audioContext.resume()
   sourceNode = audioContext.createMediaStreamSource(mediaStream)
   processorNode = audioContext.createScriptProcessor(4096, 1, 1)
@@ -1171,7 +1294,8 @@ const startMicrophone = async () => {
     // Gemini's VAD detects end-of-activity and can respond without being blocked.
     try {
       const nowMs = Date.now()
-      const suppressing = assistantIsInterruptingUser && nowMs < assistantInterruptSuppressUntil
+      const suppressing = (assistantIsInterruptingUser && nowMs < assistantInterruptSuppressUntil)
+        || presentationPhase.value === 'countdown'
       if (!suppressing && assistantIsInterruptingUser) assistantIsInterruptingUser = false
       const audioPayload = suppressing ? new ArrayBuffer(pcm16Buffer.byteLength) : pcm16Buffer
       session.sendRealtimeInput({ audio: { data: arrayBufferToBase64(audioPayload), mimeType: 'audio/pcm;rate=16000' } })
@@ -1238,12 +1362,79 @@ const stopAudioPipeline = async () => {
   if (sinkNode) { sinkNode.disconnect(); sinkNode = null }
   if (mediaStream) { mediaStream.getTracks().forEach((t) => t.stop()); mediaStream = null }
   if (audioContext) { await audioContext.close(); audioContext = null }
+  if (playbackContext) { await playbackContext.close(); playbackContext = null }
   capturedSpeechChunks = []
   speechActivityStarted = false
   silenceChunkCount = 0
   consecutiveSpeechChunks = 0
   isListening.value = false
   isModelSpeaking.value = false
+}
+
+// ─── Camera pipeline (Presentation Prep) ─────────────────────────────────────
+
+const startCamera = async () => {
+  cameraError.value = ''
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } })
+    cameraGranted.value = true
+    await nextTick()
+    if (cameraVideoEl.value) {
+      cameraVideoEl.value.srcObject = cameraStream
+      await cameraVideoEl.value.play()
+    }
+  } catch {
+    cameraGranted.value = false
+    cameraError.value = 'Camera access denied. Please allow camera access and try again.'
+  }
+}
+
+const stopCamera = () => {
+  if (frameCaptureInterval !== null) { clearInterval(frameCaptureInterval); frameCaptureInterval = null }
+  if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null }
+  if (cameraVideoEl.value) cameraVideoEl.value.srcObject = null
+  cameraGranted.value = false
+  cameraError.value = ''
+}
+
+const startFrameCapture = () => {
+  if (!cameraVideoEl.value || !session) return
+  const canvas = document.createElement('canvas')
+  canvas.width = 640
+  canvas.height = 480
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  frameCaptureInterval = setInterval(() => {
+    if (!session || !cameraVideoEl.value || !cameraGranted.value) return
+    ctx.drawImage(cameraVideoEl.value, 0, 0, 640, 480)
+    const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1]
+    try {
+      session.sendRealtimeInput({ video: { data: base64, mimeType: 'image/jpeg' } } as never)
+    } catch { /* ignore if session not ready */ }
+  }, 1000)
+}
+
+// ─── Presentation countdown ───────────────────────────────────────────────────
+
+const beginCountdown = async () => {
+  if (presentationPhase.value !== 'intro') return
+  clearPlaybackQueue()
+  presentationPhase.value = 'countdown'
+
+  for (let i = 3; i >= 1; i--) {
+    countdownValue.value = i
+    await new Promise<void>(r => setTimeout(r, 1000))
+  }
+
+  countdownValue.value = null
+  presentationPhase.value = 'presenting'
+
+  if (session && connectionState.value === 'connected') {
+    session.sendClientContent({
+      turns: [{ role: 'user', parts: [{ text: '[PRESENTATION STARTED] The user is now presenting. Enter silent coach mode: do not speak while they are talking. Only respond after they clearly finish or explicitly ask for feedback.' }] }],
+      turnComplete: true,
+    })
+  }
 }
 
 // ─── Speech recognition ───────────────────────────────────────────────────────
@@ -1298,6 +1489,17 @@ const startSpeechRecognition = (): boolean => {
 
       if (finalSegments.length) {
         const finalText = finalSegments.join(' ')
+
+        // Detect "start" keyword to begin the presentation countdown
+        if (isPresentationPrep.value && presentationPhase.value === 'intro') {
+          const hasStartKeyword = finalSegments.some(s => /\bstart\b/i.test(s))
+          if (hasStartKeyword) {
+            accumulatedRecognitionText = ''
+            finalizeTranscript('You')
+            beginCountdown()
+            return
+          }
+        }
 
         if (interruptingModeEnabled.value) {
           onModeBuffer = onModeBuffer ? `${onModeBuffer} ${finalText}` : finalText
@@ -1354,11 +1556,19 @@ const startSpeechRecognition = (): boolean => {
 const startLiveSession = async () => {
   if (isBusy.value || isConnected.value) return
 
+  // Create both AudioContexts during the user gesture (before any awaits) so Chrome
+  // grants audio permission.  The playback context is kept separate from the mic
+  // pipeline context to prevent macOS routing AI audio through the comms device.
+  await ensureAudioContext()
+  await ensurePlaybackContext()
+
   connectionState.value = 'connecting'
   transcriptEntries.value = []
   hasSeenServerMessage = false
   serverMessageCount = 0
   rawSocketMessageCount = 0
+  presentationPhase.value = 'intro'
+  countdownValue.value = null
 
   try {
     const tokenResponse = await liveVoiceService.createSessionToken()
@@ -1409,22 +1619,42 @@ const startLiveSession = async () => {
 
     voiceInputBlocked.value = false
     await startMicrophone()
+    if (isPresentationPrep.value) {
+      await startCamera()
+    }
     startSpeechRecognition()
 
     connectionState.value = 'connected'
 
+    if (isPresentationPrep.value) startFrameCapture()
+
     // Kick off the conversation.
     const mode = selectedMode.value || 'Socratic Evaluation'
-    const topic = sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
-    session.sendClientContent({
-      turns: [{
-        role: 'user',
-        parts: [{
-          text: `The student wants to practice: ${topic}. Guide them using the ${mode} style. Greet them and invite them to begin in their own words.`,
+    const isInterviewPrep = mode === 'Interview Prep' || mode === 'Cover Letter Analysis'
+    const topic = isInterviewPrep
+      ? [
+          companyDescription.value.trim() ? `Company: ${companyDescription.value.trim()}.` : '',
+          jobDescription.value.trim() ? `Job description: ${jobDescription.value.trim()}.` : '',
+          sessionTitle.value.trim() ? `Role: ${sessionTitle.value.trim()}.` : '',
+        ].filter(Boolean).join(' ') || 'an unspecified role'
+      : sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
+
+    if (isPresentationPrep.value) {
+      session.sendClientContent({
+        turns: [{ role: 'user', parts: [{ text: 'Session starting. Please begin the intro phase.' }] }],
+        turnComplete: true,
+      })
+    } else {
+      session.sendClientContent({
+        turns: [{
+          role: 'user',
+          parts: [{
+            text: `The student wants to practice: ${topic}. Guide them using the ${mode} style. Greet them and invite them to begin in their own words.`,
+          }],
         }],
-      }],
-      turnComplete: true,
-    })
+        turnComplete: true,
+      })
+    }
   } catch (error) {
     console.error('Failed to start live session:', error)
     connectionState.value = 'error'
@@ -1439,6 +1669,7 @@ const stopLiveSession = async () => {
   if (session) { detachRawSocketListener(); session.close(); session = null }
   stopSpeechRecognition()
   await stopAudioPipeline()
+  if (isPresentationPrep.value) stopCamera()
   connectionState.value = 'idle'
 }
 
@@ -1468,6 +1699,7 @@ function handleOutsideClick(e: MouseEvent) {
 onMounted(() => {
   document.addEventListener('click', handleOutsideClick)
   document.addEventListener('keydown', handleEscape)
+  nextTick(onSessionBodyScroll)
 
   if (splineCanvas.value) {
     splineApp = new Application(splineCanvas.value)
@@ -1564,9 +1796,68 @@ onBeforeUnmount(() => {
 
 .spline-zoom { transform: scale(1.18); }
 
+/* Avatar speaking animation */
+@keyframes avatar-breathe {
+  0%, 100% { transform: scale(1);      filter: brightness(1); }
+  50%       { transform: scale(1.016); filter: brightness(1.1); }
+}
+
+.spline-speaking {
+  animation: avatar-breathe 1.6s ease-in-out infinite;
+  /* keep zoom-in transform composable */
+  transform-origin: center center;
+}
+
+.spline-speaking.spline-zoom {
+  animation: avatar-breathe-zoomed 1.6s ease-in-out infinite;
+}
+
+@keyframes avatar-breathe-zoomed {
+  0%, 100% { transform: scale(1.18);      filter: brightness(1); }
+  50%       { transform: scale(1.197);    filter: brightness(1.1); }
+}
+
+/* Pulsing ring overlay */
+.avatar-speaking-overlay {
+  position: fixed;
+  /* Avatar sits at roughly the top third of the viewport inside the Spline canvas */
+  top: 33%;
+  left: 50%;
+  /* Centre on the point (overlay itself has no intrinsic size) */
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.avatar-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1.5px solid rgba(139, 92, 246, 0.45);
+  /* Centre each ring on the overlay's anchor point */
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+  animation: ring-expand 2.4s ease-out infinite;
+}
+
+.ring-1 { width: 90px;  height: 90px;  animation-delay: 0s; }
+.ring-2 { width: 90px;  height: 90px;  animation-delay: 0.8s; }
+.ring-3 { width: 90px;  height: 90px;  animation-delay: 1.6s; }
+
+@keyframes ring-expand {
+  0%   { width: 90px;  height: 90px;  opacity: 0.6; }
+  100% { width: 220px; height: 220px; opacity: 0; }
+}
+
+.speaking-rings-enter-active { transition: opacity 0.4s ease; }
+.speaking-rings-leave-active  { transition: opacity 0.6s ease; }
+.speaking-rings-enter-from,
+.speaking-rings-leave-to      { opacity: 0; }
+
 .personalize-btn-wrap {
   position: fixed;
-  top: 52%; left: 50%;
+  top: 78%; left: 50%;
   transform: translate(-50%, -50%);
   z-index: 4;
   pointer-events: all;
@@ -1908,6 +2199,7 @@ onBeforeUnmount(() => {
 .session-wrapper .panel-tab { border-left: none; border-radius: 0 10px 10px 0; }
 
 .session-panel {
+  position: relative;
   width: 300px; height: 100%;
   display: flex; flex-direction: column;
   border-radius: 20px;
@@ -1944,6 +2236,42 @@ onBeforeUnmount(() => {
 .session-body::-webkit-scrollbar { width: 4px; }
 .session-body::-webkit-scrollbar-track { background: transparent; }
 .session-body::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+.session-panel::after {
+  content: '';
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: 80px;
+  background: linear-gradient(to bottom, transparent, rgba(0, 0, 0, 0.7));
+  border-radius: 0 0 20px 20px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.session-panel.has-more::after {
+  opacity: 1;
+}
+
+.session-panel.has-more::before {
+  content: '';
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px; height: 20px;
+  border-right: 2px solid rgba(255,255,255,0.5);
+  border-bottom: 2px solid rgba(255,255,255,0.5);
+  transform: translateX(-50%) rotate(45deg);
+  pointer-events: none;
+  z-index: 1;
+  animation: scroll-hint-bounce 1.2s ease-in-out infinite;
+}
+
+@keyframes scroll-hint-bounce {
+  0%, 100% { opacity: 0.3; bottom: 12px; }
+  50% { opacity: 0.9; bottom: 8px; }
+}
 
 .session-field { display: flex; flex-direction: column; gap: 0.5rem; }
 
@@ -2378,6 +2706,191 @@ onBeforeUnmount(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
+}
+
+/* ─── Camera panel ─────────────────────────────────────────────────────────── */
+
+.camera-panel {
+  flex-shrink: 0;
+  width: 100%;
+  height: 180px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.camera-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  border-radius: 12px;
+}
+
+.camera-prompt,
+.camera-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+.camera-prompt svg,
+.camera-error svg {
+  width: 2rem;
+  height: 2rem;
+  opacity: 0.4;
+}
+
+.camera-prompt p,
+.camera-error p {
+  font-size: 0.78rem;
+  color: rgba(247, 247, 242, 0.4);
+  line-height: 1.4;
+}
+
+.camera-error svg { stroke: #f87171; opacity: 0.8; }
+.camera-error p { color: #f87171; }
+
+.transcript-panel--compact {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ─── Countdown overlay ─────────────────────────────────────────────────────── */
+
+.countdown-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  z-index: 10;
+}
+
+.countdown-number {
+  font-size: 5rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+  text-shadow: 0 0 30px rgba(139, 92, 246, 0.8);
+}
+
+.countdown-fade-enter-active,
+.countdown-fade-leave-active { transition: opacity 0.2s ease; }
+.countdown-fade-enter-from,
+.countdown-fade-leave-to { opacity: 0; }
+
+.countdown-pop-enter-active { animation: countdown-pop-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.countdown-pop-leave-active { animation: countdown-pop-out 0.25s ease-in forwards; }
+
+@keyframes countdown-pop-in {
+  from { transform: scale(2.2); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+@keyframes countdown-pop-out {
+  from { transform: scale(1);   opacity: 1; }
+  to   { transform: scale(0.5); opacity: 0; }
+}
+
+/* ─── Start Presentation button ──────────────────────────────────────────────── */
+
+.start-presentation-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 0.4rem 0;
+}
+
+.start-presentation-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 1.1rem;
+  border-radius: 20px;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  background: rgba(139, 92, 246, 0.12);
+  color: rgba(247, 247, 242, 0.85);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.start-presentation-btn:hover {
+  background: rgba(139, 92, 246, 0.28);
+  border-color: rgba(139, 92, 246, 0.7);
+}
+
+.start-presentation-btn svg {
+  width: 13px;
+  height: 13px;
+  stroke: rgba(139, 92, 246, 0.9);
+  fill: rgba(139, 92, 246, 0.15);
+}
+
+/* ─── Camera panel ─────────────────────────────────────────────────────────── */
+
+.camera-panel {
+  flex-shrink: 0;
+  width: 100%;
+  height: 180px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.camera-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  border-radius: 12px;
+}
+
+.camera-prompt,
+.camera-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+.camera-prompt svg,
+.camera-error svg {
+  width: 2rem;
+  height: 2rem;
+  opacity: 0.4;
+}
+
+.camera-prompt p,
+.camera-error p {
+  font-size: 0.78rem;
+  color: rgba(247, 247, 242, 0.4);
+  line-height: 1.4;
+}
+
+.camera-error svg { stroke: #f87171; opacity: 0.8; }
+.camera-error p { color: #f87171; }
+
+.transcript-panel--compact {
+  flex: 1;
+  min-height: 0;
 }
 
 /* Interruption mode chips */
