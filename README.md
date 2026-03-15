@@ -47,9 +47,9 @@ Traditional studying often lacks the interactive element of having someone to di
 - **Framework**: Spring Boot 3.x
 - **Database**: PostgreSQL
 - **Vector Database**: pgvector for semantic search
-- **AI Integration**: OpenAI API, Anthropic Claude
-- **Speech Services**: OpenAI Whisper (STT), OpenAI TTS
-- **Build Tool**: Maven/Gradle
+- **AI Integration**: Gemini GenAI SDK
+- **Speech Services**: Gemini Live API
+- **Build Tool**: Maven
 
 ### Frontend
 - **Framework**: Vue 3 (Composition API)
