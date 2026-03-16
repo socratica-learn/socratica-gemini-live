@@ -60,5 +60,6 @@ The script performs three phases:
 
 ## Notes
 
+- If the Artifact Registry repository, runtime service accounts, secrets, or bootstrap IAM bindings already exist in the project, `scripts/gcp/deploy.sh` imports them into Terraform state before the first apply so reruns do not fail with `409 already exists`.
 - The frontend now proxies `/api/*` and websocket traffic at runtime using `BACKEND_UPSTREAM`, so it remains same-origin from the browser on Cloud Run.
 - `FRONTEND_URL` and OAuth callback URLs are finalized on the second Terraform apply because the Cloud Run URLs are not known until the first deployment finishes.

@@ -23,6 +23,29 @@ check_gcloud_adc_auth() {
   gcloud auth application-default print-access-token >/dev/null 2>&1
 }
 
+terraform_state_has() {
+  local address="$1"
+  terraform -chdir="${TERRAFORM_DIR}" state show "${address}" >/dev/null 2>&1
+}
+
+terraform_import_if_untracked() {
+  local address="$1"
+  local import_id="$2"
+
+  if terraform_state_has "${address}"; then
+    return 0
+  fi
+
+  if terraform -chdir="${TERRAFORM_DIR}" import \
+    -var="organization_id=${ORG_ID}" \
+    -var="project_id=${PROJECT_ID}" \
+    -var="region=${REGION}" \
+    -var="deploy_services=false" \
+    "${address}" "${import_id}" >/dev/null 2>&1; then
+    echo "Imported existing Terraform resource: ${address}"
+  fi
+}
+
 ensure_adc_quota_project() {
   if ! gcloud auth application-default set-quota-project "${PROJECT_ID}" >/dev/null 2>&1; then
     echo "Failed to set the ADC quota project to ${PROJECT_ID}." >&2
@@ -56,6 +79,31 @@ fi
 export GOOGLE_CLOUD_QUOTA_PROJECT="${PROJECT_ID}"
 ensure_adc_quota_project
 
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+ARTIFACT_REGISTRY_REPOSITORY="socratica"
+BACKEND_SERVICE_ACCOUNT_EMAIL="socratica-backend@${PROJECT_ID}.iam.gserviceaccount.com"
+FRONTEND_SERVICE_ACCOUNT_EMAIL="socratica-frontend@${PROJECT_ID}.iam.gserviceaccount.com"
+SECRET_IMPORT_KEYS=(
+  "mongodb_uri:socratica-mongodb-uri"
+  "jwt_secret:socratica-jwt-secret"
+  "google_client_id:socratica-google-client-id"
+  "google_client_secret:socratica-google-client-secret"
+  "mail_username:socratica-mail-username"
+  "mail_password:socratica-mail-password"
+)
+BACKEND_ROLE_IMPORTS=(
+  "roles/aiplatform.user"
+  "roles/secretmanager.secretAccessor"
+)
+BUILD_ROLE_IMPORTS=(
+  "serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com|roles/artifactregistry.writer"
+  "serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com|roles/logging.logWriter"
+  "serviceAccount:${PROJECT_NUMBER}@cloudbuild.gserviceaccount.com|roles/storage.admin"
+  "serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com|roles/artifactregistry.writer"
+  "serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com|roles/logging.logWriter"
+  "serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com|roles/storage.admin"
+)
+
 BOOTSTRAP_TARGETS=(
   'data.google_project.current'
   'terraform_data.project_org_guardrail'
@@ -69,6 +117,38 @@ BOOTSTRAP_TARGETS=(
 )
 
 terraform -chdir="${TERRAFORM_DIR}" init
+
+terraform_import_if_untracked \
+  'google_artifact_registry_repository.containers' \
+  "projects/${PROJECT_ID}/locations/${REGION}/repositories/${ARTIFACT_REGISTRY_REPOSITORY}"
+terraform_import_if_untracked \
+  'google_service_account.backend' \
+  "projects/${PROJECT_ID}/serviceAccounts/${BACKEND_SERVICE_ACCOUNT_EMAIL}"
+terraform_import_if_untracked \
+  'google_service_account.frontend' \
+  "projects/${PROJECT_ID}/serviceAccounts/${FRONTEND_SERVICE_ACCOUNT_EMAIL}"
+
+for secret_entry in "${SECRET_IMPORT_KEYS[@]}"; do
+  secret_key="${secret_entry%%:*}"
+  secret_id="${secret_entry#*:}"
+  terraform_import_if_untracked \
+    "google_secret_manager_secret.app[\"${secret_key}\"]" \
+    "projects/${PROJECT_ID}/secrets/${secret_id}"
+done
+
+for role in "${BACKEND_ROLE_IMPORTS[@]}"; do
+  terraform_import_if_untracked \
+    "google_project_iam_member.backend_roles[\"${role}\"]" \
+    "${PROJECT_ID} ${role} serviceAccount:${BACKEND_SERVICE_ACCOUNT_EMAIL}"
+done
+
+for build_role_entry in "${BUILD_ROLE_IMPORTS[@]}"; do
+  build_member="${build_role_entry%%|*}"
+  build_role="${build_role_entry#*|}"
+  terraform_import_if_untracked \
+    "google_project_iam_member.build_roles[\"${build_member}|${build_role}\"]" \
+    "${PROJECT_ID} ${build_role} ${build_member}"
+done
 
 terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
   "${BOOTSTRAP_TARGETS[@]/#/-target=}" \
