@@ -1298,6 +1298,12 @@ const startMicrophone = async () => {
   processorNode.onaudioprocess = (event) => {
     if (!session || connectionState.value !== 'connected' || !audioContext) return
 
+    // Bail out early if the underlying WebSocket is no longer open — avoids
+    // spamming "WebSocket is already in CLOSING or CLOSED state" errors when
+    // the connection drops but cleanup hasn't finished yet.
+    const rawWs = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
+    if (rawWs && rawWs.readyState !== WebSocket.OPEN) return
+
     const inputSamples = event.inputBuffer.getChannelData(0)
     const level = calculateLevel(inputSamples)
     const downsampled = downsampleTo16k(inputSamples, audioContext.sampleRate)
@@ -1419,6 +1425,8 @@ const startFrameCapture = () => {
   if (!ctx) return
   frameCaptureInterval = setInterval(() => {
     if (!session || !cameraVideoEl.value || !cameraGranted.value) return
+    const ws = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
+    if (ws && ws.readyState !== WebSocket.OPEN) return
     ctx.drawImage(cameraVideoEl.value, 0, 0, 640, 480)
     const base64 = canvas.toDataURL('image/jpeg', 0.7).split(',')[1]
     try {
@@ -1453,7 +1461,7 @@ const beginCountdown = async () => {
 // ─── Speech recognition ───────────────────────────────────────────────────────
 
 const detachRawSocketListener = () => {
-  const rawSocket = session?.socket ?? null
+  const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws ?? null
   if (rawSocket && rawSocketListener) rawSocket.removeEventListener('message', rawSocketListener)
   rawSocketListener = null
 }
@@ -1565,6 +1573,15 @@ const startSpeechRecognition = (): boolean => {
 }
 
 // ─── Session lifecycle ────────────────────────────────────────────────────────
+
+const cleanupAfterDisconnect = async () => {
+  pendingSessionKickoff = null
+  detachRawSocketListener()
+  stopSpeechRecognition()
+  await stopAudioPipeline()
+  if (isPresentationPrep.value) stopCamera()
+  session = null
+}
 
 const startLiveSession = async () => {
   if (isBusy.value || isConnected.value) return
