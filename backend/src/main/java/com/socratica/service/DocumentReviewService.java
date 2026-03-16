@@ -56,6 +56,21 @@ public class DocumentReviewService {
     private static final int MAX_CONTENT_CHARS = 30000;
 
     /**
+     * Extracts plain text from the uploaded file without running a Gemini review.
+     * Used by Interview Prep to feed CV content into the live session system prompt.
+     */
+    public String extractText(MultipartFile file) {
+        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
+        String contentType = file.getContentType() == null ? "" : file.getContentType();
+        String extension = extractExtension(filename).toLowerCase();
+        String text = extractText(file, extension, contentType);
+        if (text.length() > MAX_CONTENT_CHARS) {
+            text = text.substring(0, MAX_CONTENT_CHARS) + "\n[... content truncated ...]";
+        }
+        return text;
+    }
+
+    /**
      * Extracts text from the uploaded file, sends it to Gemini for structured review,
      * and returns a {@link DocumentReviewResponse}.
      */

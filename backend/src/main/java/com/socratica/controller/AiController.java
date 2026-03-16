@@ -1,6 +1,7 @@
 package com.socratica.controller;
 
 import com.socratica.dto.AiResponse;
+import com.socratica.dto.ChatRequest;
 import com.socratica.dto.JobPreparationCoverLetterRequest;
 import com.socratica.dto.JobPreparationCvRequest;
 import com.socratica.dto.JobPreparationInterviewRequest;
@@ -83,5 +84,10 @@ public class AiController {
     @PostMapping("/teaching-advice")
     public ResponseEntity<AiResponse> generateTeachingAdvice(@Valid @RequestBody TeachingAdviceRequest request) {
         return ResponseEntity.ok(aiService.generateTeachingAdvice(request));
+    }
+
+    @PostMapping("/chat")
+    public ResponseEntity<AiResponse> chat(@Valid @RequestBody ChatRequest request) {
+        return ResponseEntity.ok(aiService.chat(request));
     }
 }

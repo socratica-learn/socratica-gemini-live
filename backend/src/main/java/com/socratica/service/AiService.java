@@ -3,6 +3,7 @@ package com.socratica.service;
 import com.google.genai.Client;
 import com.google.genai.types.GenerateContentResponse;
 import com.socratica.dto.AiResponse;
+import com.socratica.dto.ChatRequest;
 import com.socratica.dto.JobPreparationCoverLetterRequest;
 import com.socratica.dto.JobPreparationCvRequest;
 import com.socratica.dto.JobPreparationInterviewRequest;
@@ -125,6 +126,29 @@ public class AiService {
             nullToDefault(request.getTone(), "clear and supportive")
         );
         return new AiResponse(generateContent(prompt));
+    }
+
+    public AiResponse chat(ChatRequest request) {
+        StringBuilder prompt = new StringBuilder();
+        String mode = request.getSessionMode() != null ? request.getSessionMode() : "Written Evaluation";
+        prompt.append("You are Socratica, an insightful AI tutor. ");
+        prompt.append("Session mode: ").append(mode).append(". ");
+        if (request.getSessionTitle() != null && !request.getSessionTitle().isBlank()) {
+            prompt.append("Session title: ").append(request.getSessionTitle()).append(". ");
+        }
+        if (request.getSessionTopic() != null && !request.getSessionTopic().isBlank()) {
+            prompt.append("Topic: ").append(request.getSessionTopic()).append(". ");
+        }
+        if (request.getDocumentContext() != null && !request.getDocumentContext().isBlank()) {
+            prompt.append("Document context: ").append(request.getDocumentContext()).append(". ");
+        }
+        prompt.append("Be helpful, concise, and encourage deeper thinking. ");
+        if (request.getConversationHistory() != null && !request.getConversationHistory().isBlank()) {
+            prompt.append("\n\nConversation so far:\n").append(request.getConversationHistory());
+        }
+        prompt.append("\n\nStudent: ").append(request.getMessage());
+        prompt.append("\n\nSocratica:");
+        return new AiResponse(generateContent(prompt.toString()));
     }
 
     private String generateContent(String prompt) {
