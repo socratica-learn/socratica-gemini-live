@@ -17,9 +17,11 @@ import org.apache.hc.core5.http.io.entity.StringEntity;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.Base64;
 
 @Service
 @RequiredArgsConstructor
@@ -33,7 +35,7 @@ public class OAuthService {
     /**
      * Get Google OAuth authorization URL
      */
-    public String getGoogleAuthUrl() {
+    public String getGoogleAuthUrl(String frontendOrigin) {
         if (oAuthProperties == null || oAuthProperties.getGoogle() == null) {
             log.error("OAuthProperties or Google configuration is null");
             throw new IllegalStateException("OAuth configuration is not properly initialized. Please check application.yml");
@@ -59,10 +61,14 @@ public class OAuthService {
             String encodedClientId = URLEncoder.encode(googleClientId, StandardCharsets.UTF_8);
             String scope = URLEncoder.encode("openid email profile", StandardCharsets.UTF_8);
             String redirectUri = URLEncoder.encode(googleRedirectUri, StandardCharsets.UTF_8);
+            String stateParam = buildStateParam(frontendOrigin);
             
             String authUrl = String.format(
-                "https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&access_type=online",
-                encodedClientId, redirectUri, scope
+                "https://accounts.google.com/o/oauth2/v2/auth?client_id=%s&redirect_uri=%s&response_type=code&scope=%s&access_type=online%s",
+                encodedClientId,
+                redirectUri,
+                scope,
+                stateParam
             );
             
             log.debug("Generated Google OAuth URL successfully");
@@ -178,6 +184,113 @@ public class OAuthService {
 
     public String getFrontendUrl() {
         return oAuthProperties.getFrontendUrl();
+    }
+
+    public String resolveFrontendUrl(String encodedState) {
+        String configuredFrontendUrl = oAuthProperties.getFrontendUrl();
+        String frontendOrigin = decodeState(encodedState);
+
+        if (frontendOrigin == null || frontendOrigin.isBlank()) {
+            return configuredFrontendUrl;
+        }
+
+        if (isAllowedFrontendOrigin(frontendOrigin, configuredFrontendUrl)) {
+            return frontendOrigin;
+        }
+
+        log.warn("Ignoring untrusted frontend origin '{}' and falling back to '{}'", frontendOrigin, configuredFrontendUrl);
+        return configuredFrontendUrl;
+    }
+
+    private String buildStateParam(String frontendOrigin) {
+        String normalizedOrigin = normalizeFrontendOrigin(frontendOrigin);
+        if (normalizedOrigin == null) {
+            return "";
+        }
+
+        String encodedState = Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(normalizedOrigin.getBytes(StandardCharsets.UTF_8));
+        return "&state=" + URLEncoder.encode(encodedState, StandardCharsets.UTF_8);
+    }
+
+    private String decodeState(String encodedState) {
+        if (encodedState == null || encodedState.isBlank()) {
+            return null;
+        }
+
+        try {
+            byte[] decodedBytes = Base64.getUrlDecoder().decode(encodedState);
+            return normalizeFrontendOrigin(new String(decodedBytes, StandardCharsets.UTF_8));
+        } catch (IllegalArgumentException e) {
+            log.warn("Failed to decode OAuth state");
+            return null;
+        }
+    }
+
+    private boolean isAllowedFrontendOrigin(String requestedOrigin, String configuredFrontendUrl) {
+        String normalizedRequestedOrigin = normalizeFrontendOrigin(requestedOrigin);
+        String normalizedConfiguredOrigin = normalizeFrontendOrigin(configuredFrontendUrl);
+
+        if (normalizedRequestedOrigin == null || normalizedConfiguredOrigin == null) {
+            return false;
+        }
+
+        if (normalizedRequestedOrigin.equals(normalizedConfiguredOrigin)) {
+            return true;
+        }
+
+        URI configuredUri = URI.create(normalizedConfiguredOrigin);
+        boolean configuredIsLocalhost = configuredUri.getHost() != null &&
+                ("localhost".equalsIgnoreCase(configuredUri.getHost()) || "127.0.0.1".equals(configuredUri.getHost()));
+
+        if (!configuredIsLocalhost) {
+            return false;
+        }
+
+        URI requestedUri = URI.create(normalizedRequestedOrigin);
+        return "https".equalsIgnoreCase(requestedUri.getScheme()) ||
+                "localhost".equalsIgnoreCase(requestedUri.getHost()) ||
+                "127.0.0.1".equals(requestedUri.getHost());
+    }
+
+    private String normalizeFrontendOrigin(String frontendOrigin) {
+        if (frontendOrigin == null || frontendOrigin.isBlank()) {
+            return null;
+        }
+
+        try {
+            URI uri = URI.create(frontendOrigin.trim());
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+
+            if (scheme == null || host == null) {
+                return null;
+            }
+
+            boolean isHttp = "http".equalsIgnoreCase(scheme);
+            boolean isHttps = "https".equalsIgnoreCase(scheme);
+            if (!isHttp && !isHttps) {
+                return null;
+            }
+
+            if (uri.getUserInfo() != null || uri.getPath() != null && !uri.getPath().isBlank() && !"/".equals(uri.getPath()) ||
+                    uri.getQuery() != null || uri.getFragment() != null) {
+                return null;
+            }
+
+            return new URI(
+                    scheme.toLowerCase(),
+                    null,
+                    host.toLowerCase(),
+                    uri.getPort(),
+                    null,
+                    null,
+                    null
+            ).toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // Inner classes for user info

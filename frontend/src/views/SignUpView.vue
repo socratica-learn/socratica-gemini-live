@@ -117,7 +117,8 @@ async function handleSubmit() {
 
 async function handleSocialLogin() {
   try {
-    const authUrl = await authService.getGoogleAuthUrl()
+    const frontendOrigin = typeof window !== 'undefined' ? window.location.origin : undefined
+    const authUrl = await authService.getGoogleAuthUrl(frontendOrigin)
     
     // Store that this is a signup action
     sessionStorage.setItem('oauth_source', 'signup')

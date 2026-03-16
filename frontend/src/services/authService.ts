@@ -113,8 +113,10 @@ export const authService = {
     return !!this.getToken()
   },
 
-  async getGoogleAuthUrl(): Promise<string> {
-    const response = await api.get<{ url: string }>('/auth/oauth/google/url')
+  async getGoogleAuthUrl(frontendOrigin?: string): Promise<string> {
+    const response = await api.get<{ url: string }>('/auth/oauth/google/url', {
+      params: frontendOrigin ? { frontendOrigin } : undefined,
+    })
     return response.data.url
   },
 

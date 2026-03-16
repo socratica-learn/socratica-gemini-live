@@ -70,10 +70,10 @@ public class AuthController {
     }
 
     @GetMapping("/oauth/google/url")
-    public ResponseEntity<?> getGoogleAuthUrl() {
+    public ResponseEntity<?> getGoogleAuthUrl(@RequestParam(value = "frontendOrigin", required = false) String frontendOrigin) {
         try {
             log.info("Generating Google OAuth URL...");
-            String url = oAuthService.getGoogleAuthUrl();
+            String url = oAuthService.getGoogleAuthUrl(frontendOrigin);
             log.info("Google OAuth URL generated successfully: {}", url.substring(0, Math.min(100, url.length())) + "...");
             return ResponseEntity.ok(new AuthResponse.AuthUrlResponse(url));
         } catch (IllegalStateException e) {
@@ -102,12 +102,16 @@ public class AuthController {
     }
 
     @GetMapping("/oauth/google/callback")
-    public ResponseEntity<?> handleGoogleCallback(@RequestParam("code") String code) {
+    public ResponseEntity<?> handleGoogleCallback(
+            @RequestParam("code") String code,
+            @RequestParam(value = "state", required = false) String state
+    ) {
         try {
             AuthResponse response = oAuthService.handleGoogleCallback(code);
+            String frontendUrl = oAuthService.resolveFrontendUrl(state);
             // Redirect to frontend with token and user info
             String redirectUrl = String.format("%s/auth/callback?token=%s&provider=google&userId=%s&email=%s&name=%s&surname=%s",
-                    oAuthService.getFrontendUrl(), 
+                    frontendUrl,
                     response.getToken(),
                     response.getUser().getId(),
                     java.net.URLEncoder.encode(response.getUser().getEmail(), java.nio.charset.StandardCharsets.UTF_8),
