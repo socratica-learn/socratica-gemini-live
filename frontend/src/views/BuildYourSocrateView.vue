@@ -249,12 +249,21 @@
             <transition name="dropdown">
               <div v-if="dropdownOpen" class="dropdown-menu">
                 <button
-                  v-for="option in modeOptions"
-                  :key="option"
+                  v-for="(option, i) in modeOptions"
+                  :key="option.name"
                   class="dropdown-item"
-                  :class="{ active: selectedMode === option }"
-                  @click="selectMode(option)"
-                >{{ option }}</button>
+                  :class="{ active: selectedMode === option.name }"
+                  @click="selectMode(option.name)"
+                >
+                  <span class="dropdown-item-top">
+                    <span class="dropdown-item-name">{{ option.name }}</span>
+                    <span class="dropdown-item-badge" :class="voiceSessions.includes(option.name) ? 'badge--voice' : 'badge--text'">
+                      {{ voiceSessions.includes(option.name) ? 'Voice' : 'Text' }}
+                    </span>
+                  </span>
+                  <span class="dropdown-item-desc">{{ option.desc }}</span>
+                  <hr v-if="i === voiceSessions.length - 1" class="dropdown-divider" />
+                </button>
               </div>
             </transition>
           </div>
@@ -278,7 +287,7 @@
         <!-- Live status indicator (below buttons) -->
         <div v-if="isConnected" class="live-status">
           <span class="live-dot" :class="{ listening: isListening, speaking: isModelSpeaking }"></span>
-          <span class="live-label">{{ isModelSpeaking ? 'Socratica is speaking' : isListening ? 'Listening…' : 'Ready' }}</span>
+          <span class="live-label">{{ isModelSpeaking ? `${tutorName} is speaking` : isListening ? 'Listening…' : 'Ready' }}</span>
         </div>
       </div>
     </div>
@@ -292,11 +301,11 @@
         <div class="session-body" ref="sessionBodyEl" @scroll="onSessionBodyScroll">
           <div class="session-field">
             <label class="field-label">Session Title</label>
-            <input v-model="sessionTitle" class="field-input" type="text" :placeholder="selectedMode === 'Interview Prep' ? 'e.g. Google SWE Interview' : selectedMode === 'Cover Letter Analysis' ? 'e.g. Product Manager at Stripe' : 'e.g. Biology Exam Prep'" />
+            <input v-model="sessionTitle" class="field-input" type="text" :placeholder="selectedMode === 'Interview Prep' ? 'e.g. Google SWE Interview' : 'e.g. Biology Exam Prep'" />
           </div>
 
-          <!-- Interview Prep & Cover Letter Analysis specific fields -->
-          <template v-if="selectedMode === 'Interview Prep' || selectedMode === 'Cover Letter Analysis'">
+          <!-- Interview Prep specific fields -->
+          <template v-if="selectedMode === 'Interview Prep'">
             <div class="session-field">
               <label class="field-label">Company Description</label>
               <textarea
@@ -332,10 +341,13 @@
 
           <div class="session-field">
             <label class="field-label">{{
-              selectedMode === 'Interview Prep' ? 'Upload your CV' :
-              selectedMode === 'Cover Letter Analysis' ? 'Upload your Cover Letter, Motivational Letter, Letter of Intent, etc.' :
+              selectedMode === 'Interview Prep' ? 'Upload your CV (PDF, DOCX, or TXT)' :
+              selectedMode === 'Presentation Prep' ? 'Upload your slides (PDF, optional)' :
               'Files'
             }}</label>
+            <p v-if="isPresentationPrep" class="field-hint">
+              Share your slides so the AI can reference them during coaching. Not required — you can also just present without uploading anything.
+            </p>
             <div class="file-drop" :class="{ dragging: isDragging }"
               @dragover.prevent="isDragging = true"
               @dragleave.prevent="isDragging = false"
@@ -362,6 +374,50 @@
                 </button>
               </li>
             </ul>
+
+            <!-- CV extraction status for Interview Prep -->
+            <div v-if="isInterviewPrep && isExtractingCv" class="session-analyzed-badge">
+              <span class="analyze-spinner"></span>
+              Reading CV…
+            </div>
+            <div v-else-if="isInterviewPrep && cvContext && uploadedFiles.length > 0" class="session-analyzed-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M20 6L9 17l-5-5"/>
+              </svg>
+              CV loaded
+            </div>
+
+            <!-- Slides extraction status for Presentation Prep -->
+            <div v-if="isPresentationPrep && isExtractingSlides" class="session-analyzed-badge">
+              <span class="analyze-spinner"></span>
+              Reading slides…
+            </div>
+            <div v-else-if="isPresentationPrep && slidesContext && uploadedFiles.length > 0" class="session-analyzed-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M20 6L9 17l-5-5"/>
+              </svg>
+              Slides loaded — AI will reference your content
+            </div>
+
+            <!-- Analyze button for Written Evaluation -->
+            <button
+              v-if="selectedMode === 'Written Evaluation' && uploadedFiles.length > 0 && !hasAnalysis"
+              class="session-analyze-btn"
+              :disabled="isAnalyzingDocument"
+              @click="analyzeWrittenDocument"
+            >
+              <span v-if="isAnalyzingDocument" class="analyze-spinner"></span>
+              <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+              </svg>
+              {{ isAnalyzingDocument ? 'Analyzing…' : 'Analyze Document' }}
+            </button>
+            <div v-if="selectedMode === 'Written Evaluation' && hasAnalysis" class="session-analyzed-badge">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                <path d="M20 6L9 17l-5-5"/>
+              </svg>
+              Analysis complete
+            </div>
           </div>
         </div>
       </div>
@@ -374,7 +430,7 @@
     </div>
 
     <!-- Right: transcript + fallback wrapper (both slide together) -->
-    <div class="transcript-wrapper" :class="{ hidden: !transcriptVisible || !selectedMode, 'hidden-ui': personalizing }">
+    <div class="transcript-wrapper" :class="{ hidden: !transcriptVisible || !selectedMode, 'hidden-ui': personalizing, 'transcript-wrapper--wide': hasAnalysis }">
       <!-- Tab attached to left edge of wrapper -->
       <button class="panel-tab" @click="transcriptVisible = !transcriptVisible">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -384,8 +440,8 @@
       <!-- Voice session: transcript + fallback -->
       <div v-if="isVoiceSession" class="right-panels">
 
-        <!-- Camera panel (Presentation Prep only) -->
-        <div v-if="isPresentationPrep" class="camera-panel">
+        <!-- Camera panel (Presentation Prep + Interview Prep) -->
+        <div v-if="isPresentationPrep || isInterviewPrep" class="camera-panel">
           <div v-if="!isConnected && !cameraGranted" class="camera-prompt">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
               <path d="M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
@@ -409,7 +465,7 @@
           </transition>
         </div>
 
-        <!-- Start Presentation button (shown during intro phase) -->
+        <!-- Start Presentation button + info tooltip (intro phase) -->
         <div v-if="isPresentationPrep && isConnected && presentationPhase === 'intro'" class="start-presentation-wrap">
           <button class="start-presentation-btn" @click="beginCountdown">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -417,9 +473,57 @@
             </svg>
             Say "Start" or click here to begin
           </button>
+          <div class="presentation-info-wrap">
+            <button class="presentation-info-btn" aria-label="How this works">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 16v-4M12 8h.01"/>
+              </svg>
+            </button>
+            <div class="presentation-info-popover">
+              <div class="info-item">
+                <span class="hint-dot hint-dot--gold"></span>
+                <span>Take your time — Socratica will greet you and ask about your presentation first.</span>
+              </div>
+              <div class="info-item">
+                <span class="hint-dot hint-dot--white"></span>
+                <span>Say <strong>"Start"</strong> or click the button when you're ready to present.</span>
+              </div>
+              <div class="info-item">
+                <span class="hint-dot hint-dot--purple"></span>
+                <span>Socratica goes <strong>silent</strong> during your presentation. Say <strong>"give me feedback"</strong> to resume.</span>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="transcript-panel" :class="{ 'transcript-panel--compact': isPresentationPrep }">
+        <!-- Interview Prep info row -->
+        <div v-if="isInterviewPrep && isConnected" class="start-presentation-wrap">
+          <div class="presentation-info-wrap">
+            <button class="presentation-info-btn" aria-label="How this works">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 16v-4M12 8h.01"/>
+              </svg>
+            </button>
+            <div class="presentation-info-popover">
+              <div class="info-item">
+                <span class="hint-dot hint-dot--gold"></span>
+                <span>The interviewer has reviewed your CV and will begin with an intro question.</span>
+              </div>
+              <div class="info-item">
+                <span class="hint-dot hint-dot--white"></span>
+                <span>Answer naturally by <strong>speaking</strong> or <strong>typing</strong> below.</span>
+              </div>
+              <div class="info-item">
+                <span class="hint-dot hint-dot--purple"></span>
+                <span>The interviewer will close with <strong>feedback</strong> when you're done.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="transcript-panel" :class="{ 'transcript-panel--compact': isPresentationPrep || isInterviewPrep }">
           <div class="transcript-header">
             <span class="transcript-label">Transcript</span>
             <span class="transcript-status" :class="{ active: isConnected }">
@@ -450,9 +554,9 @@
               type="text"
               placeholder="Type a message…"
               autocomplete="off"
-              :disabled="!isConnected"
+              :disabled="(isPresentationPrep || isInterviewPrep) ? isFallbackThinking : !isConnected"
             />
-            <button class="fallback-send" type="submit" :disabled="!fallbackInput.trim() || !isConnected">
+            <button class="fallback-send" type="submit" :disabled="!fallbackInput.trim() || ((isPresentationPrep || isInterviewPrep) ? isFallbackThinking : !isConnected)">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
               </svg>
@@ -462,25 +566,105 @@
       </div>
 
       <!-- Non-voice session: chat -->
-      <div v-else class="right-panels">
+      <div v-else class="right-panels" :class="{ 'right-panels--wide': hasAnalysis }">
+        <!-- Analyze button for Written Evaluation with uploaded files -->
+        <div v-if="selectedMode === 'Written Evaluation' && uploadedFiles.length > 0 && !hasAnalysis" class="analyze-trigger">
+          <button class="analyze-btn" :disabled="isAnalyzingDocument" @click="analyzeWrittenDocument">
+            <svg v-if="!isAnalyzingDocument" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+            <span v-else class="analyze-spinner"></span>
+            {{ isAnalyzingDocument ? 'Analyzing document…' : 'Analyze Document' }}
+          </button>
+        </div>
+
         <div class="transcript-panel chat-panel">
           <div class="transcript-header">
             <span class="transcript-label">Chat</span>
+            <button v-if="hasAnalysis" class="download-pdf-btn" @click="downloadAnalysisPdf" title="Download analysis as PDF">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 16V4M12 16l-3-3M12 16l3-3M20 20H4"/>
+              </svg>
+              PDF
+            </button>
           </div>
           <div class="transcript-body" ref="transcriptBody">
             <div v-if="chatMessages.length === 0" class="transcript-empty">
-              Ask your AI tutor anything about your session topic.
+              {{ selectedMode === 'Written Evaluation' && uploadedFiles.length > 0 ? 'Click "Analyze Document" to get a full analysis of your uploaded file.' : 'Ask your AI tutor anything about your session topic.' }}
             </div>
-            <div v-for="(msg, i) in chatMessages" :key="i" class="transcript-msg" :class="msg.role">
-              <span class="msg-role">{{ msg.role === 'user' ? 'You' : 'Socratica' }}</span>
-              <p class="msg-text">{{ msg.text }}</p>
+
+            <template v-for="(msg, i) in chatMessages" :key="i">
+              <!-- Structured analysis message -->
+              <div v-if="msg.isAnalysis && msg.analysis" class="analysis-message">
+                <div class="analysis-doc-header">
+                  <span class="analysis-doc-badge">{{ msg.analysis.documentTypeLabel }}</span>
+                  <p class="analysis-summary">{{ msg.analysis.summary }}</p>
+                </div>
+
+                <div class="analysis-section">
+                  <h4 class="analysis-section-title analysis-title--scores">Quality Scores</h4>
+                  <div class="analysis-scores">
+                    <div v-for="(score, dim) in msg.analysis.qualityScores" :key="dim" class="analysis-score-row">
+                      <span class="analysis-score-dim">{{ formatScoreDim(String(dim)) }}</span>
+                      <div class="analysis-score-bar-wrap">
+                        <div class="analysis-score-bar" :style="{ width: (score * 10) + '%' }" :class="analysisScoreClass(score)"></div>
+                      </div>
+                      <span class="analysis-score-val">{{ score }}/10</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="analysis-section">
+                  <h4 class="analysis-section-title analysis-title--strengths">
+                    <span class="analysis-icon-dot analysis-dot--green"></span> Strengths
+                  </h4>
+                  <ul class="analysis-list">
+                    <li v-for="(item, si) in msg.analysis.strengths" :key="si" class="analysis-list-item analysis-item--strength">{{ item }}</li>
+                  </ul>
+                </div>
+
+                <div class="analysis-section">
+                  <h4 class="analysis-section-title analysis-title--weaknesses">
+                    <span class="analysis-icon-dot analysis-dot--amber"></span> Weaknesses
+                  </h4>
+                  <ul class="analysis-list">
+                    <li v-for="(item, wi) in msg.analysis.weaknesses" :key="wi" class="analysis-list-item analysis-item--weakness">{{ item }}</li>
+                  </ul>
+                </div>
+
+                <div class="analysis-section">
+                  <h4 class="analysis-section-title analysis-title--suggestions">
+                    <span class="analysis-icon-dot analysis-dot--gold"></span> Actionable Suggestions
+                  </h4>
+                  <ol class="analysis-list analysis-list--numbered">
+                    <li v-for="(item, gi) in msg.analysis.suggestions" :key="gi" class="analysis-list-item analysis-item--suggestion">{{ item }}</li>
+                  </ol>
+                </div>
+              </div>
+
+              <!-- Regular text message -->
+              <div v-else class="transcript-msg" :class="msg.role">
+                <span class="msg-role">{{ msg.role === 'user' ? 'You' : tutorName }}</span>
+                <p class="msg-text">{{ msg.text }}</p>
+              </div>
+            </template>
+
+            <!-- AI thinking indicator -->
+            <div v-if="isChatThinking" class="transcript-msg ai">
+              <span class="msg-role">Socratica</span>
+              <p class="msg-text chat-thinking">
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+                <span class="thinking-dot"></span>
+              </p>
             </div>
           </div>
         </div>
+
         <div class="fallback-panel">
           <form class="fallback-form" @submit.prevent="sendChat">
-            <input v-model="chatInput" class="fallback-input" type="text" placeholder="Message Socratica..." autocomplete="off" />
-            <button class="fallback-send" type="submit" :disabled="!chatInput.trim()">
+            <input v-model="chatInput" class="fallback-input" type="text" placeholder="Message Socratica..." autocomplete="off" :disabled="isChatThinking" />
+            <button class="fallback-send" type="submit" :disabled="!chatInput.trim() || isChatThinking">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
               </svg>
@@ -508,7 +692,7 @@ import { liveVoiceService } from '@/services/liveVoiceService'
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ConnectionState = 'idle' | 'connecting' | 'connected' | 'error'
-type TranscriptSpeaker = 'You' | 'Socratica'
+type TranscriptSpeaker = 'You' | string
 
 interface TranscriptEntry {
   id: string
@@ -516,6 +700,23 @@ interface TranscriptEntry {
   text: string
   time: string
   pending: boolean
+}
+
+interface DocumentReviewResponse {
+  documentType: string
+  documentTypeLabel: string
+  summary: string
+  strengths: string[]
+  weaknesses: string[]
+  suggestions: string[]
+  qualityScores: Record<string, number>
+}
+
+interface ChatMessage {
+  role: 'user' | 'ai'
+  text?: string
+  isAnalysis?: boolean
+  analysis?: DocumentReviewResponse
 }
 
 
@@ -560,21 +761,23 @@ let splineApp: Application | null = null
 
 const dropdownOpen = ref(false)
 const selectedMode = ref('')
-const modeOptions = [
-  'Written Evaluation',
-  'Presentation Prep',
-  'Socratic Evaluation',
-  'Interview Prep',
-  'Cover Letter Analysis',
-  'Notes & Summaries',
+const modeOptions: { name: string; desc: string }[] = [
+  { name: 'Presentation Prep',   desc: 'Practice your presentation live — get real-time feedback on delivery, confidence, and clarity.' },
+  { name: 'Interview Prep',      desc: 'Mock job interview with an AI interviewer who reads your CV, job description, and company context.' },
+  { name: 'Socratic Evaluation', desc: 'Deep 1-on-1 Socratic tutoring session — the AI challenges your reasoning with targeted questions.' },
+  { name: 'Written Evaluation',  desc: 'Upload a document and get structured AI analysis: scores, strengths, weaknesses, and suggestions.' },
 ]
 
 const voiceSessions = ['Presentation Prep', 'Socratic Evaluation', 'Interview Prep']
 const isVoiceSession = computed(() => voiceSessions.includes(selectedMode.value))
 
 // Chat (non-voice sessions)
-const chatMessages = ref<{ role: 'user' | 'ai'; text: string }[]>([])
+const chatMessages = ref<ChatMessage[]>([])
 const chatInput = ref('')
+const isAnalyzingDocument = ref(false)
+const isChatThinking = ref(false)
+const isFallbackThinking = ref(false)
+const geminiChatHistory = ref<{ role: string; parts: { text: string }[] }[]>([])
 
 
 const sessionVisible = ref(true)
@@ -606,17 +809,18 @@ const interruptionModeOptions = [
   { id: 'silence-breaker',  label: 'Silence Breaker',                       desc: 'Prompts you if you pause too long' },
 ]
 const activeInterruptionModes = ref<string[]>(['logical-fallacy', 'off-topic'])
-const voices: { name: string; style: string; description: string }[] = [
-  { name: 'Socrates',  style: 'Philosophical', description: 'Constantly asks probing questions and challenges assumptions' },
-  { name: 'Athena',   style: 'Strategic',      description: 'Structured, analytical, and focused on clarity' },
-  { name: 'Leonardo', style: 'Creative',       description: 'Encourages exploration and unconventional thinking' },
-  { name: 'Curie',    style: 'Scientific',     description: 'Precise, logical, evidence-driven' },
-  { name: 'Seneca',   style: 'Reflective',     description: 'Calm, thoughtful, emphasizes reasoning and clarity' },
-  { name: 'Tesla',    style: 'Visionary',      description: 'Connects concepts and encourages deep insight' },
-  { name: 'Aristotle',style: 'Systematic',     description: 'Focuses on definitions, categories, and structured knowledge' },
-  { name: 'Maya',     style: 'Empathetic',     description: 'Supportive, patient, encouraging confidence' },
-  { name: 'Darwin',   style: 'Curious',        description: 'Always asking "why" and pushing deeper inquiry' },
-  { name: 'Hypatia',  style: 'Mathematical',   description: 'Analytical and precise reasoning' },
+// voiceName maps to actual Gemini Live prebuilt voices
+const voices: { name: string; style: string; description: string; voiceName: string; gender: 'male' | 'female' }[] = [
+  { name: 'Socrates',   style: 'Philosophical', description: 'Constantly asks probing questions and challenges assumptions',  voiceName: 'Charon',  gender: 'male'   },
+  { name: 'Athena',     style: 'Strategic',      description: 'Structured, analytical, and focused on clarity',               voiceName: 'Kore',    gender: 'female' },
+  { name: 'Leonardo',   style: 'Creative',       description: 'Encourages exploration and unconventional thinking',            voiceName: 'Puck',    gender: 'male'   },
+  { name: 'Curie',      style: 'Scientific',     description: 'Precise, logical, evidence-driven',                            voiceName: 'Aoede',   gender: 'female' },
+  { name: 'Seneca',     style: 'Reflective',     description: 'Calm, thoughtful, emphasizes reasoning and clarity',           voiceName: 'Orus',    gender: 'male'   },
+  { name: 'Tesla',      style: 'Visionary',      description: 'Connects concepts and encourages deep insight',                voiceName: 'Fenrir',  gender: 'male'   },
+  { name: 'Aristotle',  style: 'Systematic',     description: 'Focuses on definitions, categories, and structured knowledge', voiceName: 'Altair',  gender: 'male'   },
+  { name: 'Maya',       style: 'Empathetic',     description: 'Supportive, patient, encouraging confidence',                  voiceName: 'Leda',    gender: 'female' },
+  { name: 'Darwin',     style: 'Curious',        description: 'Always asking "why" and pushing deeper inquiry',               voiceName: 'Orbit',   gender: 'male'   },
+  { name: 'Hypatia',    style: 'Mathematical',   description: 'Analytical and precise reasoning',                             voiceName: 'Zephyr',  gender: 'female' },
 ]
 const teachingStyles: { name: string; traits: string[] }[] = [
   { name: 'Socratic Challenger', traits: ['Deep questioning', 'Interrupts weak reasoning', 'Forces clarification'] },
@@ -642,6 +846,10 @@ const sessionTitle = ref('')
 const sessionTopic = ref('')
 const companyDescription = ref('')
 const jobDescription = ref('')
+const cvContext = ref('')          // extracted text from uploaded CV (Interview Prep)
+const isExtractingCv = ref(false)
+const slidesContext = ref('')      // extracted text from uploaded slides (Presentation Prep)
+const isExtractingSlides = ref(false)
 const uploadedFiles = ref<File[]>([])
 const isDragging = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -658,14 +866,254 @@ const transcriptEntries = ref<TranscriptEntry[]>([])
 const voiceInputBlocked = ref(false)
 const interruptingModeEnabled = ref(false)
 
-// Chat send (non-voice sessions)
-function sendChat() {
+// Chat send (non-voice sessions) — calls backend /api/ai/chat
+async function sendChat() {
   const text = chatInput.value.trim()
-  if (!text) return
+  if (!text || isChatThinking.value) return
   if (chatMessages.value.length === 0) saveSessionToHistory()
   chatMessages.value.push({ role: 'user', text })
   chatInput.value = ''
   void scrollTranscriptToBottom()
+
+  isChatThinking.value = true
+  try {
+    // Build a short conversation history string for context (last 6 exchanges)
+    const historyLines = geminiChatHistory.value.slice(-12).map(m =>
+      `${m.role === 'user' ? 'Student' : tutorName.value}: ${m.parts[0]?.text ?? ''}`
+    ).join('\n')
+
+    // Build document context from any prior analysis
+    const analysisMsg = chatMessages.value.find(m => m.isAnalysis && m.analysis)
+    let documentContext = ''
+    if (analysisMsg?.analysis) {
+      const a = analysisMsg.analysis
+      const scores = Object.entries(a.qualityScores).map(([k, v]) => `${k}: ${v}/10`).join(', ')
+      documentContext = `Document: ${a.documentTypeLabel}. Summary: ${a.summary}. Scores — ${scores}. Strengths: ${a.strengths.join('; ')}. Weaknesses: ${a.weaknesses.join('; ')}. Suggestions: ${a.suggestions.join('; ')}.`
+    }
+
+    const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api'
+    const response = await fetch(`${apiBaseUrl}/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        sessionMode: selectedMode.value || 'Written Evaluation',
+        sessionTitle: sessionTitle.value || undefined,
+        sessionTopic: sessionTopic.value || undefined,
+        conversationHistory: historyLines || undefined,
+        documentContext: documentContext || undefined,
+      }),
+    })
+
+    if (!response.ok) throw new Error(`Server error: ${response.status}`)
+
+    const data = (await response.json()) as { content: string }
+    const responseText = data.content || 'I could not generate a response.'
+    geminiChatHistory.value.push({ role: 'user', parts: [{ text }] })
+    geminiChatHistory.value.push({ role: 'model', parts: [{ text: responseText }] })
+    chatMessages.value.push({ role: 'ai', text: responseText })
+  } catch (err) {
+    console.error('[Socratica chat error]', err)
+    chatMessages.value.push({ role: 'ai', text: 'Something went wrong. Please try again.' })
+  } finally {
+    isChatThinking.value = false
+    void scrollTranscriptToBottom()
+  }
+}
+
+// Analyze uploaded document and show structured result in chat
+async function analyzeWrittenDocument() {
+  if (!uploadedFiles.value.length || isAnalyzingDocument.value) return
+
+  isAnalyzingDocument.value = true
+  if (chatMessages.value.length === 0) saveSessionToHistory()
+  chatMessages.value.push({ role: 'user', text: `Analyzing: ${uploadedFiles.value[0].name}` })
+  void scrollTranscriptToBottom()
+
+  try {
+    const formData = new FormData()
+    formData.append('file', uploadedFiles.value[0])
+
+    const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api'
+    const response = await fetch(`${apiBaseUrl}/ai/document-review`, {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) throw new Error(`Server error: ${response.status}`)
+
+    const analysis = (await response.json()) as DocumentReviewResponse
+    chatMessages.value.push({ role: 'ai', isAnalysis: true, analysis })
+
+    // Seed the Gemini conversation history with the document context
+    const scoresText = Object.entries(analysis.qualityScores)
+      .map(([k, v]) => `${k}: ${v}/10`).join(', ')
+    geminiChatHistory.value = [
+      {
+        role: 'user',
+        parts: [{ text: `I've uploaded "${uploadedFiles.value[0].name}" (${analysis.documentTypeLabel}) for review. Summary: ${analysis.summary}. Scores — ${scoresText}. Strengths: ${analysis.strengths.join('; ')}. Weaknesses: ${analysis.weaknesses.join('; ')}. Suggestions: ${analysis.suggestions.join('; ')}.` }],
+      },
+      {
+        role: 'model',
+        parts: [{ text: `I've reviewed your document. It's a ${analysis.documentTypeLabel}. Ask me anything about the analysis — scores, strengths, weaknesses, or how to improve specific areas.` }],
+      },
+    ]
+
+    void scrollTranscriptToBottom()
+  } catch {
+    chatMessages.value.push({ role: 'ai', text: 'Sorry, I could not analyze the document. Please try again.' })
+  } finally {
+    isAnalyzingDocument.value = false
+  }
+}
+
+// Download the analysis as a PDF file using jsPDF
+async function downloadAnalysisPdf() {
+  const analysisMsg = chatMessages.value.find(m => m.isAnalysis && m.analysis)
+  if (!analysisMsg?.analysis) return
+  const a = analysisMsg.analysis
+  const title = sessionTitle.value || 'Document Analysis'
+
+  const { jsPDF } = await import('jspdf')
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+
+  const pageW = doc.internal.pageSize.getWidth()
+  const margin = 20
+  const contentW = pageW - margin * 2
+  let y = 20
+
+  const addPage = () => { doc.addPage(); y = 20 }
+  const checkY = (needed: number) => { if (y + needed > 275) addPage() }
+
+  // Header
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(14)
+  doc.setTextColor(20, 20, 20)
+  doc.text(title.toUpperCase(), margin, y)
+  y += 5
+  doc.setDrawColor(80, 80, 80)
+  doc.setLineWidth(0.4)
+  doc.line(margin, y, pageW - margin, y)
+  y += 8
+
+  // Date
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8)
+  doc.setTextColor(120, 120, 120)
+  doc.text(new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), pageW - margin, 16, { align: 'right' })
+
+  // Badge + summary
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(8)
+  doc.setTextColor(140, 100, 30)
+  doc.text(a.documentTypeLabel.toUpperCase(), margin, y)
+  y += 7
+
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(9)
+  doc.setTextColor(60, 60, 60)
+  const summaryLines = doc.splitTextToSize(a.summary, contentW) as string[]
+  doc.text(summaryLines, margin, y)
+  y += summaryLines.length * 5 + 8
+
+  // Quality Scores
+  checkY(10)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(140, 100, 30)
+  doc.text('QUALITY SCORES', margin, y)
+  y += 6
+
+  for (const [dim, score] of Object.entries(a.qualityScores)) {
+    checkY(7)
+    doc.setFont('helvetica', 'normal')
+    doc.setFontSize(8)
+    doc.setTextColor(80, 80, 80)
+    doc.text(dim.charAt(0).toUpperCase() + dim.slice(1), margin, y)
+    // bar background
+    const barX = margin + 32
+    const barW = contentW - 44
+    doc.setFillColor(220, 220, 220)
+    doc.roundedRect(barX, y - 3, barW, 3.5, 1, 1, 'F')
+    // bar fill
+    const fillW = (score / 10) * barW
+    const r = score >= 8 ? 50 : score >= 5 ? 180 : 180
+    const g = score >= 8 ? 180 : score >= 5 ? 130 : 60
+    const b = score >= 8 ? 100 : score >= 5 ? 30 : 60
+    doc.setFillColor(r, g, b)
+    doc.roundedRect(barX, y - 3, fillW, 3.5, 1, 1, 'F')
+    // score text
+    doc.setTextColor(80, 80, 80)
+    doc.text(`${score}/10`, pageW - margin, y, { align: 'right' })
+    y += 7
+  }
+  y += 4
+
+  // Strengths
+  checkY(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(30, 130, 80)
+  doc.text('STRENGTHS', margin, y)
+  y += 6
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+  doc.setTextColor(40, 40, 40)
+  for (const item of a.strengths) {
+    const lines = doc.splitTextToSize(`• ${item}`, contentW) as string[]
+    checkY(lines.length * 5 + 2)
+    doc.text(lines, margin, y)
+    y += lines.length * 5 + 1
+  }
+  y += 4
+
+  // Weaknesses
+  checkY(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(180, 60, 30)
+  doc.text('WEAKNESSES', margin, y)
+  y += 6
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+  doc.setTextColor(40, 40, 40)
+  for (const item of a.weaknesses) {
+    const lines = doc.splitTextToSize(`• ${item}`, contentW) as string[]
+    checkY(lines.length * 5 + 2)
+    doc.text(lines, margin, y)
+    y += lines.length * 5 + 1
+  }
+  y += 4
+
+  // Suggestions
+  checkY(12)
+  doc.setFont('helvetica', 'bold')
+  doc.setFontSize(9)
+  doc.setTextColor(140, 100, 30)
+  doc.text('ACTIONABLE SUGGESTIONS', margin, y)
+  y += 6
+  doc.setFont('helvetica', 'normal')
+  doc.setFontSize(8.5)
+  doc.setTextColor(40, 40, 40)
+  a.suggestions.forEach((item, idx) => {
+    const lines = doc.splitTextToSize(`${idx + 1}. ${item}`, contentW) as string[]
+    checkY(lines.length * 5 + 2)
+    doc.text(lines, margin, y)
+    y += lines.length * 5 + 1
+  })
+
+  const filename = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_analysis.pdf`
+  doc.save(filename)
+}
+
+function formatScoreDim(dim: string): string {
+  return dim.charAt(0).toUpperCase() + dim.slice(1)
+}
+
+function analysisScoreClass(score: number): string {
+  if (score >= 8) return 'analysis-bar--high'
+  if (score >= 5) return 'analysis-bar--mid'
+  return 'analysis-bar--low'
 }
 
 // Session history (localStorage)
@@ -713,11 +1161,20 @@ function clearHistory() {
 const isBusy = computed(() => connectionState.value === 'connecting')
 const isConnected = computed(() => connectionState.value === 'connected')
 const isPresentationPrep = computed(() => selectedMode.value === 'Presentation Prep')
+const isInterviewPrep = computed(() => selectedMode.value === 'Interview Prep')
+const hasAnalysis = computed(() => chatMessages.value.some(m => m.isAnalysis))
+const tutorName = computed(() => voices.find(v => v.name === selectedVoice.value)?.name ?? 'Socratica')
 
 // Presentation Prep always has interruption mode off
 watch(isPresentationPrep, (val) => {
   if (val) interruptingModeEnabled.value = false
 }, { immediate: true })
+
+// Mastery learning mode implies interruption mode
+watch(selectedLearningMode, (val) => {
+  if (val === 'mastery' && !isPresentationPrep.value) interruptingModeEnabled.value = true
+  if (val !== 'mastery') interruptingModeEnabled.value = false
+})
 
 // ─── Transcript scroll ref ────────────────────────────────────────────────────
 
@@ -885,16 +1342,27 @@ const addUserEntry = (text: string) => {
 
 const buildTutorPrompt = () => {
   const mode = selectedMode.value || 'Socratic Evaluation'
-  const isInterviewPrep = mode === 'Interview Prep' || mode === 'Cover Letter Analysis'
-  const topic = isInterviewPrep
-    ? [
-        companyDescription.value.trim() ? `Company: ${companyDescription.value.trim()}.` : '',
-        jobDescription.value.trim() ? `Job description: ${jobDescription.value.trim()}.` : '',
-        sessionTitle.value.trim() ? `Role: ${sessionTitle.value.trim()}.` : '',
-      ].filter(Boolean).join(' ') || 'an unspecified role'
-    : sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
+  const topic = sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
 
-  const interruptBehavior = interruptingModeEnabled.value
+  // ── Resolve active persona settings ──────────────────────────────────────
+  const persona = voices.find(v => v.name === selectedVoice.value) ?? voices[0]
+  const style = teachingStyles.find(s => s.name === selectedStyle.value) ?? teachingStyles[0]
+  const personality = personalities.find(p => p.name === selectedPersonality.value) ?? personalities[0]
+  const learningMode = learningModes.find(m => m.id === selectedLearningMode.value) ?? learningModes[0]
+
+  const personaBlock = [
+    `You are ${persona.name}, a ${persona.style.toLowerCase()} AI tutor.`,
+    `Your core character: ${persona.description}.`,
+    `Teaching style — ${style.name}: ${style.traits.join(', ')}.`,
+    `Personality — ${personality.name}: ${personality.traits.join(', ')}.`,
+    `Learning mode — ${learningMode.label} (${learningMode.tag}): ${learningMode.desc}`,
+  ].join(' ')
+
+  // ── Interruption behavior ─────────────────────────────────────────────────
+  const isMasteryMode = selectedLearningMode.value === 'mastery'
+  const shouldInterrupt = interruptingModeEnabled.value || isMasteryMode
+
+  const interruptBehavior = shouldInterrupt
     ? [
         'You are in ACTIVE INTERRUPTION MODE.',
         'Listen carefully to the meaning of what the student says, not just whether they have paused.',
@@ -909,32 +1377,75 @@ const buildTutorPrompt = () => {
         'Do not wait for the student to finish their full thought — jump in naturally, like an engaged tutor leaning in.',
         'Only stay silent when the student is clearly on the right track and building a solid explanation.',
       ].join(' ')
-    : 'Always wait for the student to fully finish their explanation before you speak. Do not interrupt, even if you notice an issue. Be patient and fully user-led. Only respond after the student has clearly finished their thought.'
+    : selectedLearningMode.value === 'apprentice'
+      ? 'Always wait for the student to fully finish before speaking. Guide step by step — scaffold each concept before moving to the next. Be patient and supportive.'
+      : 'Always wait for the student to fully finish their explanation before you speak. Do not interrupt, even if you notice an issue. Be patient and fully user-led.'
 
   if (mode === 'Presentation Prep') {
+    const slidesBlock = slidesContext.value.trim()
+      ? `The student has uploaded their presentation slides. Slide content:\n---\n${slidesContext.value.trim().slice(0, 4000)}\n---\nUse this to give more specific, content-aware feedback. You may reference specific slides or points if relevant.`
+      : ''
     return [
-      'You are Socratica, a warm and encouraging real-time presentation coach in a live video and voice session.',
-      'You can see the student through their camera.',
+      personaBlock,
+      'You are acting as a presentation coach in a real-time voice session. You can see the student through their camera.',
       topic ? `The student will be presenting on: ${topic}.` : '',
+      slidesBlock,
       'The session has two phases:',
-      'PHASE 1 — INTRO: Greet the student warmly and ask them to briefly tell you about their presentation: the topic, the intended audience, and what they most want to improve (eye contact, body language, voice, content, confidence, etc.). Ask one natural follow-up question if it helps clarify their goal. Keep this intro conversational and brief.',
-      'When they are done explaining and ready to start, tell them: "Whenever you are ready, just say Start or click the Start button."',
-      'PHASE 2 — PRESENTATION (triggered when you receive [PRESENTATION STARTED]): Enter silent observation mode immediately. Do NOT speak or interrupt while the student is actively presenting. Only after they clearly stop speaking (several seconds of silence) or explicitly ask for feedback (e.g. "what do you think?" or "pause"), give concise spoken feedback — two to four sentences maximum.',
-      'Feedback should cover: (1) Eye contact — were they looking at the camera? (2) Body language — posture, gestures, fidgeting. (3) Voice — pace, tone, clarity, filler words. (4) Confidence and energy. (5) Content delivery — clarity and structure.',
-      'Be warm, specific, and encouraging. Always highlight one thing done well before suggesting one concrete improvement.',
+      'PHASE 1 — INTRO: Greet the student warmly in character. Then ask them about their presentation: the topic, the intended audience, and what they most want to improve. Keep the intro conversational and brief.',
+      slidesBlock ? 'You have access to their slide content — you may briefly mention that you have reviewed it.' : '',
+      'When they are ready to start, tell them: "Whenever you are ready, just say Start or click the Start button."',
+      'PHASE 2 — PRESENTATION (triggered when you receive [PRESENTATION STARTED]): Enter STRICT SILENT MODE immediately. Do NOT speak while the student is actively presenting. Remain completely silent.',
+      'ONLY break silence if the student explicitly requests it by saying things like "give me feedback", "what do you think?", "pause", "stop", or your name. When they do, give concise spoken feedback — two to four sentences maximum.',
+      'Feedback should cover: (1) Eye contact (2) Body language (3) Voice — pace, tone, filler words (4) Confidence (5) Content clarity and accuracy against the slides.',
+      'After giving feedback, return to silent mode until explicitly asked again.',
+      'Be warm, specific, and encouraging. Always highlight one strength before one improvement.',
+    ].filter(Boolean).join(' ')
+  }
+
+  if (mode === 'Interview Prep') {
+    const cvBlock = cvContext.value.trim()
+      ? `Candidate CV:\n---\n${cvContext.value.trim().slice(0, 4000)}\n---`
+      : 'No CV provided.'
+    const companyBlock = companyDescription.value.trim()
+      ? `Company: ${companyDescription.value.trim()}`
+      : ''
+    const jdBlock = jobDescription.value.trim()
+      ? `Job description: ${jobDescription.value.trim()}`
+      : ''
+    const roleBlock = sessionTitle.value.trim()
+      ? `Role being interviewed for: ${sessionTitle.value.trim()}`
+      : ''
+
+    return [
+      `You are ${persona.name}, a professional AI interviewer conducting a realistic mock job interview.`,
+      `Your interviewing style: ${persona.description}.`,
+      `Personality — ${personality.name}: ${personality.traits.join(', ')}.`,
+      companyBlock, jdBlock, roleBlock, cvBlock,
+      'SESSION FLOW:',
+      'PHASE 1 — INTRO: Greet the candidate warmly and introduce yourself. Briefly acknowledge the role and company. Tell them you have reviewed their CV. Ask them to briefly introduce themselves and walk you through their background. Keep this natural and conversational.',
+      'PHASE 2 — INTERVIEW: Ask focused, realistic interview questions appropriate for the role. Mix behavioral questions (STAR format), technical questions relevant to the job description, and situational questions. One question at a time. After the candidate answers, either ask a natural follow-up or move to the next question. Probe weak or vague answers with a short follow-up.',
+      'PHASE 3 — WRAP-UP: After covering the main topics, close the interview naturally. Ask if they have any questions. Then give brief, honest, constructive feedback on their performance — strengths and areas to improve.',
+      'Keep responses concise and natural. This is a spoken voice interview, not a written exchange.',
+      'Be professional but warm. Adapt the difficulty based on the candidate\'s responses.',
     ].filter(Boolean).join(' ')
   }
 
   return [
-    'You are Socratica, a spoken Socratic tutor in a real-time voice conversation.',
-    `Tutor mode: ${mode}.`,
+    personaBlock,
+    `Session mode: ${mode}.`,
     `Student topic: ${topic}.`,
-    'Greet the student briefly, invite them to begin in their own words.',
+    'Greet the student in character and invite them to begin.',
     interruptBehavior,
+    selectedLearningMode.value === 'scholar'
+      ? 'Push for conceptual depth. Do not accept surface-level answers. Follow every claim with "why?" or "how does that connect to...?"'
+      : '',
+    selectedLearningMode.value === 'mastery'
+      ? 'Be relentless. Challenge every assumption. Play devil\'s advocate. Engage in debate if needed.'
+      : '',
     'Keep spoken responses concise and natural — one to three sentences at most.',
-    'Ask one question at a time. After the student answers, briefly acknowledge their point before building on it or challenging it.',
+    'Ask one question at a time. Acknowledge the student\'s point before building on it or challenging it.',
     'This is a back-and-forth spoken conversation, not a lecture. Avoid long monologues.',
-  ].join(' ')
+  ].filter(Boolean).join(' ')
 }
 
 // ─── Interrupting mode toggle ─────────────────────────────────────────────────
@@ -1061,11 +1572,65 @@ const transcribeCapturedSpeech = async () => {
   }
 }
 
-const submitFallback = () => {
+const submitFallback = async () => {
   const text = fallbackInput.value.trim()
-  if (!text) return
-  sendRecognizedUserText(text)
+  if (!text || isFallbackThinking.value) return
   fallbackInput.value = ''
+
+  // Presentation Prep / Interview Prep: if live session is active, interrupt voice and send as text.
+  // If not connected, fall back to backend HTTP chat API.
+  if (isPresentationPrep.value || isInterviewPrep.value) {
+    if (session && connectionState.value === 'connected') {
+      sendRecognizedUserText(text)
+      return
+    }
+
+    // Not connected — use backend text chat
+    addUserEntry(text)
+    isFallbackThinking.value = true
+    const thinkingId = String(++nextEntryId)
+    transcriptEntries.value.push({ id: thinkingId, speaker: tutorName.value, text: '…', time: '', pending: true })
+    void scrollTranscriptToBottom()
+    try {
+      const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api'
+      const response = await fetch(`${apiBaseUrl}/ai/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: text,
+          sessionMode: selectedMode.value,
+          sessionTitle: sessionTitle.value || undefined,
+          sessionTopic: sessionTopic.value || cvContext.value.slice(0, 500) || undefined,
+          conversationHistory: transcriptEntries.value.slice(-12)
+            .filter(e => !e.pending || e.id !== thinkingId)
+            .map(e => `${e.speaker}: ${e.text}`).join('\n') || undefined,
+          documentContext: isInterviewPrep.value && cvContext.value
+            ? `Job: ${jobDescription.value}. Company: ${companyDescription.value}. CV: ${cvContext.value.slice(0, 1000)}`
+            : undefined,
+        }),
+      })
+      const data = response.ok ? (await response.json()) as { content: string } : null
+      const responseText = data?.content || 'Something went wrong. Please try again.'
+      const idx = transcriptEntries.value.findIndex(e => e.id === thinkingId)
+      if (idx !== -1) {
+        transcriptEntries.value[idx] = {
+          id: thinkingId, speaker: tutorName.value, text: responseText,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          pending: false,
+        }
+      }
+    } catch {
+      const idx = transcriptEntries.value.findIndex(e => e.id === thinkingId)
+      if (idx !== -1) transcriptEntries.value.splice(idx, 1)
+    } finally {
+      isFallbackThinking.value = false
+      void scrollTranscriptToBottom()
+    }
+    return
+  }
+
+  // Other voice sessions: send to live Gemini session
+  sendRecognizedUserText(text)
 }
 
 // ─── Audio playback ───────────────────────────────────────────────────────────
@@ -1250,7 +1815,7 @@ const handleServerMessage = async (payload: unknown) => {
 
   if (serverContent?.interrupted) {
     clearPlaybackQueue()
-    finalizeTranscript('Socratica')
+    finalizeTranscript(tutorName.value)
   }
 
   if (inputTranscription?.text) {
@@ -1265,8 +1830,8 @@ const handleServerMessage = async (payload: unknown) => {
     inputTranscriptionAccumulator = ''
   }
 
-  if (outputTranscription?.text) streamTranscript('Socratica', outputTranscription.text)
-  if (outputTranscription?.finished) finalizeTranscript('Socratica', outputTranscription.text ?? undefined)
+  if (outputTranscription?.text) streamTranscript(tutorName.value, outputTranscription.text)
+  if (outputTranscription?.finished) finalizeTranscript(tutorName.value, outputTranscription.text ?? undefined)
 
   const parts = serverContent?.modelTurn?.parts ?? []
   for (const part of parts) {
@@ -1592,11 +2157,20 @@ const startLiveSession = async () => {
       httpOptions: { apiVersion: 'v1alpha' },
     })
 
+    const activePersona = voices.find(v => v.name === selectedVoice.value) ?? voices[0]
+
     session = await ai.live.connect({
       model: tokenResponse.model,
       config: {
         responseModalities: [Modality.AUDIO],
         systemInstruction: buildTutorPrompt(),
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: activePersona.voiceName,
+            },
+          },
+        },
         realtimeInputConfig: {
           activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
         },
@@ -1628,29 +2202,27 @@ const startLiveSession = async () => {
 
     voiceInputBlocked.value = false
     await startMicrophone()
-    if (isPresentationPrep.value) {
+    if (isPresentationPrep.value || isInterviewPrep.value) {
       await startCamera()
     }
     startSpeechRecognition()
 
     connectionState.value = 'connected'
 
-    if (isPresentationPrep.value) startFrameCapture()
+    if (isPresentationPrep.value || isInterviewPrep.value) startFrameCapture()
 
     // Kick off the conversation immediately — the SDK handles setup internally.
     const mode = selectedMode.value || 'Socratic Evaluation'
-    const isInterviewPrep = mode === 'Interview Prep' || mode === 'Cover Letter Analysis'
-    const topic = isInterviewPrep
-      ? [
-          companyDescription.value.trim() ? `Company: ${companyDescription.value.trim()}.` : '',
-          jobDescription.value.trim() ? `Job description: ${jobDescription.value.trim()}.` : '',
-          sessionTitle.value.trim() ? `Role: ${sessionTitle.value.trim()}.` : '',
-        ].filter(Boolean).join(' ') || 'an unspecified role'
-      : sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
+    const topic = sessionTopic.value.trim() || sessionTitle.value.trim() || 'the chosen subject'
 
     if (isPresentationPrep.value) {
       session.sendClientContent({
         turns: [{ role: 'user', parts: [{ text: 'Session starting. Please begin the intro phase.' }] }],
+        turnComplete: true,
+      })
+    } else if (isInterviewPrep.value) {
+      session.sendClientContent({
+        turns: [{ role: 'user', parts: [{ text: 'Interview session starting. Please greet the candidate and begin the intro phase.' }] }],
         turnComplete: true,
       })
     } else {
@@ -1687,17 +2259,55 @@ const stopLiveSession = async () => {
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 
 function toggleDropdown() { dropdownOpen.value = !dropdownOpen.value }
-function selectMode(option: string) { selectedMode.value = option; dropdownOpen.value = false }
+function selectMode(option: string) {
+  selectedMode.value = option; dropdownOpen.value = false
+  cvContext.value = ''; slidesContext.value = ''
+}
+
+async function extractFileText(file: File, target: 'cv' | 'slides') {
+  if (target === 'cv') isExtractingCv.value = true
+  else isExtractingSlides.value = true
+  try {
+    const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '/api'
+    const form = new FormData()
+    form.append('file', file)
+    const res = await fetch(`${apiBaseUrl}/ai/document-review/extract-text`, { method: 'POST', body: form })
+    if (res.ok) {
+      const data = await res.json() as { text: string }
+      if (target === 'cv') cvContext.value = data.text ?? ''
+      else slidesContext.value = data.text ?? ''
+    }
+  } catch {
+    // extraction failed — session will start without this context
+  } finally {
+    if (target === 'cv') isExtractingCv.value = false
+    else isExtractingSlides.value = false
+  }
+}
 
 function onFileChange(e: Event) {
   const input = e.target as HTMLInputElement
-  if (input.files) uploadedFiles.value.push(...Array.from(input.files))
+  if (input.files) {
+    const files = Array.from(input.files)
+    uploadedFiles.value.push(...files)
+    if (isInterviewPrep.value && files.length > 0) void extractFileText(files[0], 'cv')
+    if (isPresentationPrep.value && files.length > 0) void extractFileText(files[0], 'slides')
+  }
 }
 function onDrop(e: DragEvent) {
   isDragging.value = false
-  if (e.dataTransfer?.files) uploadedFiles.value.push(...Array.from(e.dataTransfer.files))
+  if (e.dataTransfer?.files) {
+    const files = Array.from(e.dataTransfer.files)
+    uploadedFiles.value.push(...files)
+    if (isInterviewPrep.value && files.length > 0) void extractFileText(files[0], 'cv')
+    if (isPresentationPrep.value && files.length > 0) void extractFileText(files[0], 'slides')
+  }
 }
-function removeFile(index: number) { uploadedFiles.value.splice(index, 1) }
+function removeFile(index: number) {
+  uploadedFiles.value.splice(index, 1)
+  if (isInterviewPrep.value && uploadedFiles.value.length === 0) cvContext.value = ''
+  if (isPresentationPrep.value && uploadedFiles.value.length === 0) slidesContext.value = ''
+}
 
 function handleEscape(e: KeyboardEvent) { if (e.key === 'Escape') personalizing.value = false }
 function handleOutsideClick(e: MouseEvent) {
@@ -2006,8 +2616,8 @@ onBeforeUnmount(() => {
 }
 
 .dropdown-item {
-  display: block; width: 100%;
-  padding: 0.9rem 1.4rem;
+  display: flex; flex-direction: column; gap: 0.25rem;
+  width: 100%; padding: 0.85rem 1.4rem;
   background: transparent; border: none;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   color: rgba(247, 247, 242, 0.75);
@@ -2019,7 +2629,52 @@ onBeforeUnmount(() => {
 
 .dropdown-item:last-child { border-bottom: none; }
 .dropdown-item:hover { background: rgba(255, 255, 255, 0.05); color: #F7F7F2; }
-.dropdown-item.active { background: transparent; color: #F7F7F2; }
+.dropdown-item.active { background: rgba(255, 255, 255, 0.04); color: #F7F7F2; }
+
+.dropdown-item-top {
+  display: flex; align-items: center; gap: 0.5rem;
+}
+
+.dropdown-item-name {
+  font-weight: 500;
+  font-size: 0.9rem;
+  color: inherit;
+}
+
+.dropdown-item-desc {
+  font-size: 0.78rem;
+  color: rgba(247, 247, 242, 0.4);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+.dropdown-item-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.badge--voice {
+  background: rgba(139, 92, 246, 0.18);
+  color: rgba(196, 162, 255, 0.9);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.badge--text {
+  background: rgba(234, 179, 8, 0.12);
+  color: rgba(253, 224, 71, 0.85);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+}
+
+.dropdown-divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  margin: 0.5rem 0 0;
+}
 
 .dropdown-enter-active, .dropdown-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px); }
@@ -2285,6 +2940,13 @@ onBeforeUnmount(() => {
 }
 
 .session-field { display: flex; flex-direction: column; gap: 0.5rem; }
+
+.field-hint {
+  font-size: 0.78rem;
+  color: rgba(247, 247, 242, 0.35);
+  line-height: 1.5;
+  margin: -0.15rem 0 0;
+}
 
 .field-label {
   font-family: 'Red Hat Display', sans-serif;
@@ -2814,12 +3476,77 @@ onBeforeUnmount(() => {
   to   { transform: scale(0.5); opacity: 0; }
 }
 
+/* ─── Presentation info tooltip ──────────────────────────────────────────────── */
+
+.presentation-info-wrap {
+  position: relative;
+  display: flex; align-items: center;
+}
+
+.presentation-info-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(220, 60, 60, 0.15);
+  border: 1px solid rgba(220, 60, 60, 0.5);
+  color: rgba(240, 100, 100, 0.9);
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+  flex-shrink: 0;
+}
+
+.presentation-info-btn svg { width: 17px; height: 17px; }
+.presentation-info-btn:hover { background: rgba(220, 60, 60, 0.28); border-color: rgba(220, 60, 60, 0.8); color: #ff8080; }
+
+.presentation-info-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  width: 280px;
+  background: rgba(12, 12, 12, 0.96);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 0.85rem 1rem;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  opacity: 0; pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 20;
+}
+
+.presentation-info-wrap:hover .presentation-info-popover,
+.presentation-info-btn:focus + .presentation-info-popover {
+  opacity: 1; pointer-events: all; transform: translateY(0);
+}
+
+.info-item {
+  display: flex; align-items: flex-start; gap: 0.5rem;
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.78rem; line-height: 1.5;
+  color: rgba(247, 247, 242, 0.55);
+}
+
+.info-item strong { color: rgba(247, 247, 242, 0.9); font-weight: 600; }
+
+.hint-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0; margin-top: 0.45rem;
+}
+
+.hint-dot--gold   { background: #cb9b51; }
+.hint-dot--white  { background: rgba(247, 247, 242, 0.45); }
+.hint-dot--purple { background: rgba(139, 92, 246, 0.8); }
+
 /* ─── Start Presentation button ──────────────────────────────────────────────── */
 
 .start-presentation-wrap {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   padding: 0.4rem 0;
+  flex-shrink: 0;
 }
 
 .start-presentation-btn {
@@ -3199,5 +3926,218 @@ onBeforeUnmount(() => {
 .history-enter-from,
 .history-leave-to {
   opacity: 0;
+}
+
+/* ─── Wide panel (analysis mode) ─────────────────────────────────────────── */
+
+.right-panels--wide { width: 560px; }
+.transcript-wrapper--wide.hidden { transform: translateX(calc(560px + 2.5rem)); }
+
+/* ─── Analyze button inside session panel ──────────────────────────────────── */
+
+.session-analyze-btn {
+  display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+  width: 100%; padding: 0.7rem 1rem; margin-top: 0.75rem;
+  background: rgba(203, 155, 81, 0.12);
+  border: 1px solid rgba(203, 155, 81, 0.4);
+  border-radius: 10px;
+  color: #cb9b51;
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.85rem; font-weight: 600; letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.session-analyze-btn:hover:not(:disabled) {
+  background: rgba(203, 155, 81, 0.22);
+  border-color: rgba(203, 155, 81, 0.65);
+}
+
+.session-analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.session-analyze-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+.session-analyzed-badge {
+  display: flex; align-items: center; gap: 0.4rem;
+  margin-top: 0.75rem; padding: 0.5rem 0.75rem;
+  background: rgba(74, 207, 143, 0.08);
+  border: 1px solid rgba(74, 207, 143, 0.25);
+  border-radius: 10px;
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.78rem; font-weight: 500;
+  color: #4acf8f;
+}
+
+.session-analyzed-badge svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+/* ─── Analyze document button (chat panel trigger — kept for non-WE modes) ── */
+
+.analyze-trigger { flex-shrink: 0; }
+
+.analyze-btn {
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; padding: 0.65rem 1.1rem;
+  background: rgba(203, 155, 81, 0.1);
+  border: 1px solid rgba(203, 155, 81, 0.35);
+  border-radius: 12px;
+  color: #cb9b51;
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.85rem; font-weight: 500; letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.analyze-btn:hover:not(:disabled) {
+  background: rgba(203, 155, 81, 0.18);
+  border-color: rgba(203, 155, 81, 0.55);
+}
+
+.analyze-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.analyze-btn svg { width: 15px; height: 15px; flex-shrink: 0; }
+
+.analyze-spinner {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(203, 155, 81, 0.25);
+  border-top-color: #cb9b51;
+  animation: analyze-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes analyze-spin { to { transform: rotate(360deg); } }
+
+/* ─── PDF download button ──────────────────────────────────────────────────── */
+
+.download-pdf-btn {
+  display: flex; align-items: center; gap: 0.3rem;
+  padding: 0.22rem 0.6rem;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: rgba(247, 247, 242, 0.38);
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.68rem; font-weight: 500; letter-spacing: 0.07em;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.download-pdf-btn:hover { border-color: rgba(255, 255, 255, 0.3); color: rgba(247, 247, 242, 0.75); }
+.download-pdf-btn svg { width: 11px; height: 11px; }
+
+/* ─── Analysis message ─────────────────────────────────────────────────────── */
+
+.analysis-message {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 14px;
+  padding: 1rem;
+  display: flex; flex-direction: column; gap: 0.9rem;
+}
+
+.analysis-doc-header { display: flex; flex-direction: column; gap: 0.45rem; }
+
+.analysis-doc-badge {
+  display: inline-block; align-self: flex-start;
+  padding: 0.18rem 0.6rem;
+  background: rgba(203, 155, 81, 0.1);
+  border: 1px solid rgba(203, 155, 81, 0.3);
+  border-radius: 20px;
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.68rem; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: #cb9b51;
+}
+
+.analysis-summary {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.8rem; line-height: 1.6;
+  color: rgba(247, 247, 242, 0.55); margin: 0;
+}
+
+.analysis-section { display: flex; flex-direction: column; gap: 0.45rem; }
+
+.analysis-section-title {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; margin: 0;
+}
+
+.analysis-title--scores { color: #cb9b51; }
+.analysis-title--strengths { color: #4acf8f; }
+.analysis-title--weaknesses { color: #e07050; }
+.analysis-title--suggestions { color: #cb9b51; }
+
+.analysis-icon-dot {
+  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+}
+.analysis-dot--green { background: #4acf8f; }
+.analysis-dot--amber { background: #e07050; }
+.analysis-dot--gold  { background: #cb9b51; }
+
+.analysis-scores { display: flex; flex-direction: column; gap: 0.35rem; }
+
+.analysis-score-row {
+  display: grid;
+  grid-template-columns: 100px 1fr 36px;
+  align-items: center; gap: 0.5rem;
+}
+
+.analysis-score-dim {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.75rem; color: rgba(247, 247, 242, 0.45);
+}
+
+.analysis-score-bar-wrap {
+  height: 5px; background: rgba(255, 255, 255, 0.07);
+  border-radius: 3px; overflow: hidden;
+}
+
+.analysis-score-bar {
+  height: 100%; border-radius: 3px;
+  transition: width 0.7s ease;
+}
+
+.analysis-bar--high { background: #4acf8f; }
+.analysis-bar--mid  { background: #cb9b51; }
+.analysis-bar--low  { background: #cf4a4a; }
+
+.analysis-score-val {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.72rem; color: rgba(247, 247, 242, 0.4); text-align: right;
+}
+
+.analysis-list {
+  margin: 0; padding-left: 1rem;
+  display: flex; flex-direction: column; gap: 0.28rem;
+}
+
+.analysis-list--numbered { padding-left: 1.15rem; }
+
+.analysis-list-item {
+  font-family: 'Red Hat Display', sans-serif;
+  font-size: 0.8rem; line-height: 1.5;
+}
+
+.analysis-item--strength  { color: rgba(74, 207, 143, 0.82); }
+.analysis-item--weakness  { color: rgba(224, 112, 80, 0.82); }
+.analysis-item--suggestion { color: rgba(203, 155, 81, 0.82); }
+
+/* ─── Chat thinking indicator ──────────────────────────────────────────────── */
+
+.chat-thinking {
+  display: flex; align-items: center; gap: 4px;
+}
+
+.thinking-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(247, 247, 242, 0.35);
+  animation: thinking-pulse 1.3s ease-in-out infinite;
+}
+
+.thinking-dot:nth-child(2) { animation-delay: 0.18s; }
+.thinking-dot:nth-child(3) { animation-delay: 0.36s; }
+
+@keyframes thinking-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 </style>

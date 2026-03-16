@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.Map;
+
 /**
  * REST controller for the Document Review feature.
  *
@@ -43,5 +45,18 @@ public class DocumentReviewController {
         }
         DocumentReviewResponse review = documentReviewService.reviewDocument(file);
         return ResponseEntity.ok(review);
+    }
+
+    /**
+     * Extract plain text from a CV file (PDF, DOCX, TXT) for use in live interview sessions.
+     */
+    @PostMapping(value = "/extract-text", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, String>> extractText(
+            @RequestParam("file") MultipartFile file) {
+        if (file.isEmpty()) {
+            return ResponseEntity.badRequest().build();
+        }
+        String text = documentReviewService.extractText(file);
+        return ResponseEntity.ok(Map.of("text", text));
     }
 }
