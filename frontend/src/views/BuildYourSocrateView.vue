@@ -493,6 +493,13 @@
 </template>
 
 <script setup lang="ts">
+import {
+  ActivityHandling,
+  GoogleGenAI,
+  Modality,
+  type LiveServerMessage,
+  type Session,
+} from '@google/genai'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Application } from '@splinetool/runtime'
@@ -511,26 +518,6 @@ interface TranscriptEntry {
   pending: boolean
 }
 
-interface LiveServerMessage {
-  setupComplete?: unknown
-  serverContent?: {
-    modelTurn?: { parts?: Array<{ inlineData?: { data: string; mimeType: string }; text?: string }> }
-    turnComplete?: boolean
-    interrupted?: boolean
-    inputTranscription?: { text?: string; finished?: boolean }
-    outputTranscription?: { text?: string; finished?: boolean }
-  }
-  inputTranscription?: { text?: string; finished?: boolean }
-  outputTranscription?: { text?: string; finished?: boolean }
-}
-
-interface LiveSessionConnection {
-  socket: WebSocket
-  sendClientContent: (payload: Record<string, unknown>) => void
-  sendRealtimeInput: (payload: { audio: { data: string; mimeType: string } }) => void
-  close: () => void
-  isOpen: () => boolean
-}
 
 interface SpeechRecognitionAlternativeLike { transcript: string }
 interface SpeechRecognitionResultLike {
@@ -763,7 +750,7 @@ const countdownValue = ref<number | null>(null)
 
 // ─── Non-reactive audio / session handles ────────────────────────────────────
 
-let session: LiveSessionConnection | null = null
+let session: Session | null = null
 let mediaStream: MediaStream | null = null
 let audioContext: AudioContext | null = null       // mic pipeline only
 let playbackContext: AudioContext | null = null    // AI audio output — separate so macOS never routes it through the communications device
@@ -776,6 +763,7 @@ let hasSeenServerMessage = false
 let serverMessageCount = 0
 let rawSocketMessageCount = 0
 let rawSocketListener: ((event: MessageEvent) => void) | null = null
+let pendingSessionKickoff: (() => void) | null = null
 let speechActivityStarted = false
 let silenceChunkCount = 0
 let capturedSpeechChunks: ArrayBuffer[] = []
@@ -788,26 +776,6 @@ let accumulatedRecognitionText = ''
 let onModeBuffer = ''
 let onModeFlushTimer: ReturnType<typeof setTimeout> | null = null
 let userInterruptedSocratica = false
-let activeSessionSocket: WebSocket | null = null
-
-const isSocketOpen = (socket: WebSocket | null | undefined) => socket?.readyState === WebSocket.OPEN
-
-const createLiveSessionConnection = (socket: WebSocket): LiveSessionConnection => ({
-  socket,
-  sendClientContent: (payload) => {
-    if (!isSocketOpen(socket)) return
-    socket.send(JSON.stringify({ clientContent: payload }))
-  },
-  sendRealtimeInput: (payload) => {
-    if (!isSocketOpen(socket)) return
-    socket.send(JSON.stringify({ realtimeInput: payload }))
-  },
-  close: () => {
-    if (socket.readyState === WebSocket.CLOSING || socket.readyState === WebSocket.CLOSED) return
-    socket.close()
-  },
-  isOpen: () => isSocketOpen(socket),
-})
 
 // ─── Assistant-initiated interruption state ───────────────────────────────────
 
@@ -1265,6 +1233,17 @@ const handleServerMessage = async (payload: unknown) => {
   serverMessageCount++
   if (!hasSeenServerMessage) hasSeenServerMessage = true
 
+  // Gemini sends setupComplete once it's ready to receive clientContent.
+  // Fire the kickoff message only at this point so it isn't ignored.
+  if (message.setupComplete !== undefined) {
+    if (pendingSessionKickoff) {
+      const kickoff = pendingSessionKickoff
+      pendingSessionKickoff = null
+      kickoff()
+    }
+    return
+  }
+
   const inputTranscription = message.serverContent?.inputTranscription ?? message.inputTranscription
   const outputTranscription = message.serverContent?.outputTranscription ?? message.outputTranscription
   const serverContent = message.serverContent
@@ -1489,25 +1468,6 @@ const stopSpeechRecognition = () => {
   if (speechRecognition) speechRecognition.stop()
 }
 
-const resetSessionUiState = () => {
-  if (onModeFlushTimer !== null) {
-    clearTimeout(onModeFlushTimer)
-    onModeFlushTimer = null
-  }
-  onModeBuffer = ''
-  accumulatedRecognitionText = ''
-  inputTranscriptionAccumulator = ''
-  assistantIsInterruptingUser = false
-  assistantInterruptSuppressUntil = 0
-  speechActivityStarted = false
-  silenceChunkCount = 0
-  consecutiveSpeechChunks = 0
-  capturedSpeechChunks = []
-  countdownValue.value = null
-  presentationPhase.value = 'intro'
-  isListening.value = false
-}
-
 const startSpeechRecognition = (): boolean => {
   const RecognitionCtor = window.SpeechRecognition ?? window.webkitSpeechRecognition
   if (!RecognitionCtor) { voiceInputBlocked.value = true; return false }
@@ -1624,65 +1584,44 @@ const startLiveSession = async () => {
   countdownValue.value = null
 
   try {
-    const apiBase = import.meta.env.VITE_API_BASE_URL || '/api'
-    const absoluteApiBase = new URL(apiBase, window.location.origin).href
-    const wsBase = absoluteApiBase.replace(/^https/, 'wss').replace(/^http/, 'ws')
-    const wsUrl = `${wsBase.replace(/\/$/, '')}/ai/live/proxy`
+    const tokenResponse = await liveVoiceService.createSessionToken()
 
-    session = await new Promise<LiveSessionConnection>((resolve, reject) => {
-      const socket = new WebSocket(wsUrl)
-      activeSessionSocket = socket
-      let settled = false
-
-      socket.onopen = () => {
-        socket.send(JSON.stringify({
-          setup: {
-            systemInstruction: buildTutorPrompt(),
-            responseModalities: ['AUDIO'],
-            realtimeInputConfig: {
-              activityHandling: 'START_OF_ACTIVITY_INTERRUPTS',
-            },
-            inputAudioTranscription: {},
-            outputAudioTranscription: {},
-          },
-        }))
-        settled = true
-        resolve(createLiveSessionConnection(socket))
-      }
-
-      socket.onmessage = (event) => {
-        void handleServerMessage(event)
-      }
-
-      socket.onerror = (event) => {
-        if (!settled) {
-          reject(new Error('Failed to connect to live session proxy'))
-          return
-        }
-        connectionState.value = 'error'
-        console.error('Gemini Live error:', event)
-      }
-
-      socket.onclose = () => {
-        if (activeSessionSocket === socket) {
-          activeSessionSocket = null
-        }
-        if (session?.socket === socket) {
-          session = null
-        }
-        if (connectionState.value === 'connected' || connectionState.value === 'connecting') {
-          connectionState.value = 'idle'
-        }
-      }
+    const ai = new GoogleGenAI({
+      apiKey: tokenResponse.token,
+      apiVersion: 'v1alpha',
+      httpOptions: { apiVersion: 'v1alpha' },
     })
 
-    const rawSocket = session.socket
+    session = await ai.live.connect({
+      model: tokenResponse.model,
+      config: {
+        responseModalities: [Modality.AUDIO],
+        systemInstruction: buildTutorPrompt(),
+        realtimeInputConfig: {
+          activityHandling: ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
+        },
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+      },
+      callbacks: {
+        onopen: () => {},
+        onmessage: (message) => { void handleServerMessage(message) },
+        onerror: (event) => {
+          connectionState.value = 'error'
+          console.error('Gemini Live error:', event)
+        },
+        onclose: () => {
+          if (connectionState.value === 'connected') {
+            connectionState.value = 'idle'
+          }
+        },
+      },
+    })
+
+    const rawSocket = (session as { conn?: { ws?: WebSocket } } | null)?.conn?.ws
     if (rawSocket?.addEventListener) {
       rawSocketListener = (event: MessageEvent) => {
         rawSocketMessageCount++
-        if (rawSocketMessageCount <= 5) {
-          // silent debug only
-        }
       }
       rawSocket.addEventListener('message', rawSocketListener)
     }
@@ -1698,7 +1637,7 @@ const startLiveSession = async () => {
 
     if (isPresentationPrep.value) startFrameCapture()
 
-    // Kick off the conversation.
+    // Kick off the conversation immediately — the SDK handles setup internally.
     const mode = selectedMode.value || 'Socratic Evaluation'
     const isInterviewPrep = mode === 'Interview Prep' || mode === 'Cover Letter Analysis'
     const topic = isInterviewPrep
@@ -1728,6 +1667,7 @@ const startLiveSession = async () => {
   } catch (error) {
     console.error('Failed to start live session:', error)
     connectionState.value = 'error'
+    pendingSessionKickoff = null
     stopSpeechRecognition()
     await stopAudioPipeline()
     detachRawSocketListener()
@@ -1736,13 +1676,8 @@ const startLiveSession = async () => {
 }
 
 const stopLiveSession = async () => {
-  resetSessionUiState()
-  if (session) {
-    detachRawSocketListener()
-    session.close()
-    session = null
-  }
-  activeSessionSocket = null
+  pendingSessionKickoff = null
+  if (session) { detachRawSocketListener(); session.close(); session = null }
   stopSpeechRecognition()
   await stopAudioPipeline()
   if (isPresentationPrep.value) stopCamera()
