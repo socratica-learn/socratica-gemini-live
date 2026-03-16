@@ -127,7 +127,7 @@ variable "mongodb_database" {
 variable "gemini_model" {
   description = "Default Gemini text model."
   type        = string
-  default     = "gemini-2.5-flash"
+  default     = "gemini-3-flash-preview"
 }
 
 variable "gemini_live_model" {

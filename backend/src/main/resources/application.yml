@@ -53,7 +53,7 @@ socratica:
     api-key: ${GEMINI_API_KEY:}
     project-id: ${GOOGLE_CLOUD_PROJECT:}
     location: ${GOOGLE_CLOUD_REGION:europe-west4}
-    model: ${GEMINI_MODEL:gemini-2.5-flash}
+    model: ${GEMINI_MODEL:gemini-3-flash-preview}
     live-model: ${GEMINI_LIVE_MODEL:gemini-live-2.5-flash-native-audio}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}

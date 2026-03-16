@@ -40,7 +40,7 @@ public class GeminiLiveService {
     @Value("${socratica.gemini.live-model:gemini-2.5-flash-native-audio-preview-12-2025}")
     private String liveModel;
 
-    @Value("${socratica.gemini.model:gemini-2.5-flash}")
+    @Value("${socratica.gemini.model:gemini-3-flash-preview}")
     private String geminiModel;
 
     /**
@@ -63,9 +63,8 @@ public class GeminiLiveService {
 
         String encodedApiKey = URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
         List<String> candidateUrls = List.of(
-            "https://generativelanguage.googleapis.com/v1alpha/auth_tokens?key=" + encodedApiKey,
-            "https://generativelanguage.googleapis.com/v1alpha/authTokens?key=" + encodedApiKey
-        );
+                "https://generativelanguage.googleapis.com/v1alpha/auth_tokens?key=" + encodedApiKey,
+                "https://generativelanguage.googleapis.com/v1alpha/authTokens?key=" + encodedApiKey);
 
         try (CloseableHttpClient client = HttpClients.createDefault()) {
             for (String url : candidateUrls) {
@@ -111,9 +110,9 @@ public class GeminiLiveService {
 
         try {
             Content content = Content.fromParts(
-                Part.fromText("Transcribe this audio exactly. Return only the transcript text with no labels or commentary."),
-                Part.fromBytes(audioBytes, normalizedMimeType)
-            );
+                    Part.fromText(
+                            "Transcribe this audio exactly. Return only the transcript text with no labels or commentary."),
+                    Part.fromBytes(audioBytes, normalizedMimeType));
             GenerateContentResponse response = geminiClient.models.generateContent(geminiModel, content, null);
             String text = response.text();
             return text != null ? text.trim() : "";

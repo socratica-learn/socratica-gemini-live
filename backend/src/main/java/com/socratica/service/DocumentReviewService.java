@@ -32,14 +32,17 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * DocumentReviewService uses the Gemini API (Google GenAI) to analyze uploaded documents.
+ * DocumentReviewService uses the Gemini API (Google GenAI) to analyze uploaded
+ * documents.
  *
- * <p>Google stack used:
+ * <p>
+ * Google stack used:
  * <ul>
- *   <li>Gemini 2.5 Flash via the Google Generative Language REST API</li>
+ * <li>Gemini 2.5 Flash via the Google Generative Language REST API</li>
  * </ul>
  *
- * <p>Supported file types: PDF, DOCX, PPTX, PPTX (legacy .ppt), plain text.
+ * <p>
+ * Supported file types: PDF, DOCX, PPTX, PPTX (legacy .ppt), plain text.
  * Text is extracted server-side and sent to Gemini for context-aware review.
  */
 @Service
@@ -50,14 +53,15 @@ public class DocumentReviewService {
     private final ObjectMapper objectMapper;
     private final Client geminiClient;
 
-    @Value("${socratica.gemini.model:gemini-2.5-flash}")
+    @Value("${socratica.gemini.model:gemini-3-flash-preview}")
     private String geminiModel;
 
     private static final int MAX_CONTENT_CHARS = 30000;
 
     /**
      * Extracts plain text from the uploaded file without running a Gemini review.
-     * Used by Interview Prep to feed CV content into the live session system prompt.
+     * Used by Interview Prep to feed CV content into the live session system
+     * prompt.
      */
     public String extractText(MultipartFile file) {
         String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
@@ -71,7 +75,8 @@ public class DocumentReviewService {
     }
 
     /**
-     * Extracts text from the uploaded file, sends it to Gemini for structured review,
+     * Extracts text from the uploaded file, sends it to Gemini for structured
+     * review,
      * and returns a {@link DocumentReviewResponse}.
      */
     public DocumentReviewResponse reviewDocument(MultipartFile file) {
@@ -129,7 +134,7 @@ public class DocumentReviewService {
 
     private String extractDocx(InputStream in) throws IOException {
         try (XWPFDocument doc = new XWPFDocument(in);
-             XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
+                XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
             return extractor.getText();
         }
     }
@@ -174,51 +179,51 @@ public class DocumentReviewService {
 
     private String buildPrompt(String content, String filename) {
         return """
-            You are an expert academic and professional document reviewer powered by Google Gemini.
-            Analyze the document below and return a structured JSON review.
+                You are an expert academic and professional document reviewer powered by Google Gemini.
+                Analyze the document below and return a structured JSON review.
 
-            Filename: %s
+                Filename: %s
 
-            Document content:
-            ---
-            %s
-            ---
+                Document content:
+                ---
+                %s
+                ---
 
-            Detection criteria:
-            - "presentation": contains slide markers, bullet-heavy structure, short text blocks
-            - "research_paper": has abstract/introduction/methodology/results/conclusion, citations
-            - "report": formal sections, executive summary, findings, recommendations
-            - "essay": continuous prose, thesis-driven, argumentative structure
-            - "notes": informal, fragmented, outline-style
+                Detection criteria:
+                - "presentation": contains slide markers, bullet-heavy structure, short text blocks
+                - "research_paper": has abstract/introduction/methodology/results/conclusion, citations
+                - "report": formal sections, executive summary, findings, recommendations
+                - "essay": continuous prose, thesis-driven, argumentative structure
+                - "notes": informal, fragmented, outline-style
 
-            Review criteria by type:
-            - presentation: slide clutter, text density per slide, visual clarity, narrative flow,
-              engagement, readability, structure across slides
-            - research_paper: abstract quality, argument rigor, methodology clarity, section balance,
-              citation usage, contribution clarity
-            - report: executive summary quality, findings clarity, recommendation specificity,
-              section balance, readability, professional tone
-            - essay: thesis clarity, argumentation, evidence quality, flow, writing quality
-            - notes: organization, completeness, clarity, usefulness for review
+                Review criteria by type:
+                - presentation: slide clutter, text density per slide, visual clarity, narrative flow,
+                  engagement, readability, structure across slides
+                - research_paper: abstract quality, argument rigor, methodology clarity, section balance,
+                  citation usage, contribution clarity
+                - report: executive summary quality, findings clarity, recommendation specificity,
+                  section balance, readability, professional tone
+                - essay: thesis clarity, argumentation, evidence quality, flow, writing quality
+                - notes: organization, completeness, clarity, usefulness for review
 
-            Return ONLY a valid JSON object (no markdown fences, no extra text) with this exact structure:
-            {
-              "documentType": "<presentation|research_paper|report|essay|notes|other>",
-              "documentTypeLabel": "<e.g. 'Academic Research Paper'>",
-              "summary": "<2-3 sentence overview of the document content and purpose>",
-              "strengths": ["<strength 1>", "<strength 2>", "..."],
-              "weaknesses": ["<weakness 1>", "<weakness 2>", "..."],
-              "suggestions": ["<actionable suggestion 1>", "<actionable suggestion 2>", "..."],
-              "qualityScores": {
-                "clarity": <integer 1-10>,
-                "structure": <integer 1-10>,
-                "comprehensiveness": <integer 1-10>,
-                "coherence": <integer 1-10>,
-                "relevance": <integer 1-10>,
-                "depth": <integer 1-10>
-              }
-            }
-            """.formatted(filename, content);
+                Return ONLY a valid JSON object (no markdown fences, no extra text) with this exact structure:
+                {
+                  "documentType": "<presentation|research_paper|report|essay|notes|other>",
+                  "documentTypeLabel": "<e.g. 'Academic Research Paper'>",
+                  "summary": "<2-3 sentence overview of the document content and purpose>",
+                  "strengths": ["<strength 1>", "<strength 2>", "..."],
+                  "weaknesses": ["<weakness 1>", "<weakness 2>", "..."],
+                  "suggestions": ["<actionable suggestion 1>", "<actionable suggestion 2>", "..."],
+                  "qualityScores": {
+                    "clarity": <integer 1-10>,
+                    "structure": <integer 1-10>,
+                    "comprehensiveness": <integer 1-10>,
+                    "coherence": <integer 1-10>,
+                    "relevance": <integer 1-10>,
+                    "depth": <integer 1-10>
+                  }
+                }
+                """.formatted(filename, content);
     }
 
     private String callGemini(String prompt) {
