@@ -3,9 +3,7 @@ package com.socratica.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.socratica.service.GoogleAccessTokenService;
 import lombok.extern.slf4j.Slf4j;
-import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -22,12 +20,12 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * WebSocket proxy handler that sits between the browser and the Vertex AI Live
+ * WebSocket proxy handler that sits between the browser and the Gemini Live
  * API.
  *
  * The browser connects to /api/ai/live/proxy. This handler opens a
  * corresponding
- * WebSocket to Vertex AI using server-side credentials and forwards messages in
+ * WebSocket to Gemini using a server-side API key and forwards messages in
  * both
  * directions transparently.
  *
@@ -39,27 +37,19 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 @Component
 @Slf4j
-@RequiredArgsConstructor
 public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
-    private static final String VERTEX_AI_WS_BASE_TEMPLATE = "wss://%s-aiplatform.googleapis.com/ws/"
-            + "google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent";
-
-    @Value("${socratica.gemini.project-id:}")
-    private String projectId;
+    private static final String GEMINI_LIVE_WS_URL = "wss://generativelanguage.googleapis.com/ws/"
+            + "google.ai.generativelanguage.v1beta.GenerativeService/BidiGenerateContent";
 
     @Value("${socratica.gemini.api-key:}")
     private String apiKey;
-
-    @Value("${socratica.gemini.location:europe-west4}")
-    private String location;
 
     @Value("${socratica.gemini.live-model:gemini-live-2.5-flash-native-audio}")
     private String liveModel;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final HttpClient httpClient = HttpClient.newHttpClient();
-    private final GoogleAccessTokenService googleAccessTokenService;
 
     /** Maps browser session ID → open Gemini WebSocket. */
     private final Map<String, WebSocket> geminiSockets = new ConcurrentHashMap<>();
@@ -70,32 +60,17 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession browserSession) {
         log.debug("Browser WS connected: {}", browserSession.getId());
 
-        if (projectId == null || projectId.isBlank()) {
-            log.error("GOOGLE_CLOUD_PROJECT is not configured — rejecting proxy session {}", browserSession.getId());
-            if (apiKey != null && !apiKey.isBlank()) {
-                sendErrorAndClose(browserSession,
-                        "Live voice sessions still require Vertex AI credentials. GEMINI_API_KEY only enables local backend Gemini calls.");
-                return;
-            }
-            sendErrorAndClose(browserSession, "GOOGLE_CLOUD_PROJECT is not configured on the server.");
+        if (apiKey == null || apiKey.isBlank()) {
+            log.error("GEMINI_API_KEY is not configured — rejecting proxy session {}", browserSession.getId());
+            sendErrorAndClose(browserSession, "GEMINI_API_KEY is not configured on the server.");
             return;
         }
 
-        String geminiUrl = String.format(VERTEX_AI_WS_BASE_TEMPLATE, location);
         WebSocket.Builder wsBuilder = httpClient.newWebSocketBuilder();
-        log.debug("Using Vertex AI WebSocket endpoint: {}", geminiUrl);
+        wsBuilder.header("x-goog-api-key", apiKey);
+        log.debug("Using Gemini Live WebSocket endpoint: {}", GEMINI_LIVE_WS_URL);
 
-        try {
-            String accessToken = googleAccessTokenService.getCloudPlatformAccessToken();
-            wsBuilder.header("Authorization", "Bearer " + accessToken);
-            wsBuilder.header("x-goog-user-project", projectId);
-        } catch (RuntimeException e) {
-            log.error("Vertex AI auth failed for session {}: {}", browserSession.getId(), e.getMessage());
-            sendErrorAndClose(browserSession, "Failed to acquire Vertex AI credentials on the server.");
-            return;
-        }
-
-        wsBuilder.buildAsync(URI.create(geminiUrl), new GeminiListener(browserSession))
+        wsBuilder.buildAsync(URI.create(GEMINI_LIVE_WS_URL), new GeminiListener(browserSession))
                 .thenAccept(geminiWs -> {
                     geminiSockets.put(browserSession.getId(), geminiWs);
                     log.debug("Gemini WS opened for browser session {}", browserSession.getId());
@@ -150,7 +125,7 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
                 return payload;
             }
             ObjectNode setup = (ObjectNode) root.get("setup");
-            String model = resolveVertexModelResource();
+            String model = resolveLiveModelResource();
             setup.put("model", model);
             String modified = objectMapper.writeValueAsString(root);
             log.debug("Setup message for session {} — injected model '{}'", sessionId, model);
@@ -228,18 +203,14 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private String resolveVertexModelResource() {
-        if (liveModel.startsWith("projects/")) {
+    private String resolveLiveModelResource() {
+        if (liveModel == null || liveModel.isBlank()) {
+            throw new IllegalStateException("GEMINI_LIVE_MODEL must be set for live Gemini sessions.");
+        }
+        if (liveModel.startsWith("models/")) {
             return liveModel;
         }
-        if (liveModel.startsWith("publishers/")) {
-            return String.format("projects/%s/locations/%s/%s", projectId, location, liveModel);
-        }
-        if (projectId == null || projectId.isBlank()) {
-            throw new IllegalStateException("GOOGLE_CLOUD_PROJECT must be set for Vertex AI live sessions.");
-        }
-        return String.format("projects/%s/locations/%s/publishers/google/models/%s",
-                projectId, location, liveModel);
+        return "models/" + liveModel;
     }
 
     private void sendErrorAndClose(WebSocketSession session, String message) {

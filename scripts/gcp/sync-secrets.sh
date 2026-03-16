@@ -32,6 +32,7 @@ add_secret_version() {
 
 add_secret_version "$(secret_name mongodb_uri)" "${SPRING_DATA_MONGODB_URI:-}"
 add_secret_version "$(secret_name jwt_secret)" "${JWT_SECRET:-}"
+add_secret_version "$(secret_name gemini_api_key)" "${GEMINI_API_KEY:-}"
 add_secret_version "$(secret_name google_client_id)" "${GOOGLE_CLIENT_ID:-}"
 add_secret_version "$(secret_name google_client_secret)" "${GOOGLE_CLIENT_SECRET:-}"
 add_secret_version "$(secret_name mail_username)" "${MAIL_USERNAME:-}"

@@ -86,9 +86,7 @@ For testing the project locally, it is recommended to use Docker Compose.
 docker-compose up -d
 ```
 
-Before starting Docker Compose, run `gcloud auth application-default login` once if you want the backend's Vertex AI features to work locally. The backend container mounts your local `~/.config/gcloud` ADC file.
-
-For local backend Gemini calls, you can also set `GEMINI_API_KEY` in `.env`. That supports the backend's standard Gemini endpoints without ADC, but live voice websocket sessions still require Vertex AI credentials.
+Before starting Docker Compose, set `GEMINI_API_KEY` in `.env`. The backend now uses that same key for both standard Gemini calls and live voice websocket sessions.
 
 Note: Keep in mind that social logins won't work with this setup. You can use the default email/password login or the live deployment.
 
@@ -140,7 +138,7 @@ If your org enforces periodic re-authentication and you see an `invalid_rapt` er
 
 - `SPRING_DATA_MONGODB_URI`
 - `JWT_SECRET`
-- `GEMINI_API_KEY` if you want API-key-based local Gemini access
+- `GEMINI_API_KEY`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `MAIL_USERNAME`
@@ -155,7 +153,7 @@ If your org enforces periodic re-authentication and you see an `invalid_rapt` er
 4. The script will:
 
 - Bootstrap GCP services, IAM, service accounts, Secret Manager, and Artifact Registry with Terraform
-- Deploy the backend with Vertex AI access through its Cloud Run service account
+- Deploy the backend with `GEMINI_API_KEY` injected from Secret Manager
 - Build and push backend and frontend images with Cloud Build
 - Deploy `socratica-backend` and `socratica-frontend` to Cloud Run
 - Re-run Terraform to wire the final Cloud Run URLs into backend CORS and OAuth redirect settings

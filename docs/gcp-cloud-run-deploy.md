@@ -11,7 +11,7 @@ This repository now includes Terraform and Cloud Build assets for deploying Socr
 - Required project services and APIs
 - Artifact Registry repository for backend and frontend images
 - Cloud Run runtime service accounts
-- IAM bindings for Vertex AI access, Secret Manager access, and Cloud Build image pushes
+- IAM bindings for Secret Manager access and Cloud Build image pushes
 - Secret Manager secret containers for the app configuration
 - Two public Cloud Run services:
   - `socratica-backend`
@@ -19,11 +19,11 @@ This repository now includes Terraform and Cloud Build assets for deploying Socr
 
 ## Auth Model
 
-All Gemini traffic uses Vertex AI.
+All Gemini traffic uses `GEMINI_API_KEY`.
 
-- Server-side generation uses the backend Cloud Run service account with `roles/aiplatform.user`.
-- Gemini Live uses the backend websocket proxy, which authenticates to Vertex AI with the same service account credentials.
-- Terraform also enables `apikeys.googleapis.com` so the project can create restricted Vertex AI API keys for local development when needed.
+- Server-side generation uses `GEMINI_API_KEY` from Secret Manager.
+- Gemini Live uses the backend websocket proxy with that same API key.
+- Terraform enables the Gemini API plus Secret Manager, Artifact Registry, Cloud Build, and Cloud Run services the deployment needs.
 
 ## Secrets
 
@@ -31,6 +31,7 @@ All Gemini traffic uses Vertex AI.
 
 - `SPRING_DATA_MONGODB_URI`
 - `JWT_SECRET`
+- `GEMINI_API_KEY`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `MAIL_USERNAME`

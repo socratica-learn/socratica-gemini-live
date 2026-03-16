@@ -110,13 +110,13 @@ PROJECT_POLICY_NAME="projects/${PROJECT_ID}/policies/iam.managed.disableServiceA
 SECRET_IMPORT_KEYS=(
   "mongodb_uri:socratica-mongodb-uri"
   "jwt_secret:socratica-jwt-secret"
+  "gemini_api_key:socratica-gemini-api-key"
   "google_client_id:socratica-google-client-id"
   "google_client_secret:socratica-google-client-secret"
   "mail_username:socratica-mail-username"
   "mail_password:socratica-mail-password"
 )
 BACKEND_ROLE_IMPORTS=(
-  "roles/aiplatform.user"
   "roles/secretmanager.secretAccessor"
 )
 BUILD_ROLE_IMPORTS=(

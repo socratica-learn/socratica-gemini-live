@@ -5,10 +5,10 @@ data "google_project" "current" {
 locals {
   enabled_services = toset([
     "apikeys.googleapis.com",
-    "aiplatform.googleapis.com",
     "artifactregistry.googleapis.com",
     "cloudbuild.googleapis.com",
     "cloudresourcemanager.googleapis.com",
+    "generativelanguage.googleapis.com",
     "iam.googleapis.com",
     "orgpolicy.googleapis.com",
     "run.googleapis.com",
@@ -22,6 +22,7 @@ locals {
   base_secret_ids = {
     mongodb_uri          = "socratica-mongodb-uri"
     jwt_secret           = "socratica-jwt-secret"
+    gemini_api_key       = "socratica-gemini-api-key"
     google_client_id     = "socratica-google-client-id"
     google_client_secret = "socratica-google-client-secret"
     mail_username        = "socratica-mail-username"
@@ -50,7 +51,6 @@ locals {
   }
 
   backend_roles = toset([
-    "roles/aiplatform.user",
     "roles/secretmanager.secretAccessor",
   ])
 }
@@ -208,16 +208,6 @@ resource "google_cloud_run_v2_service" "backend" {
       }
 
       env {
-        name  = "GOOGLE_CLOUD_PROJECT"
-        value = var.project_id
-      }
-
-      env {
-        name  = "GOOGLE_CLOUD_REGION"
-        value = var.region
-      }
-
-      env {
         name  = "MONGODB_DATABASE"
         value = var.mongodb_database
       }
@@ -277,6 +267,16 @@ resource "google_cloud_run_v2_service" "backend" {
         value_source {
           secret_key_ref {
             secret  = google_secret_manager_secret.app["jwt_secret"].secret_id
+            version = "latest"
+          }
+        }
+      }
+
+      env {
+        name = "GEMINI_API_KEY"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.app["gemini_api_key"].secret_id
             version = "latest"
           }
         }
