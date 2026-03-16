@@ -4,6 +4,9 @@
 
 Socratica is an intelligent learning platform that helps students master their subjects through interactive study sessions, Socratic questioning, and comprehensive study tools. By combining AI-driven conversations with practical study aids, Socratica transforms passive learning into an active, engaging experience.
 
+Live Demo: https://socratica-frontend-4oo2bhp6ta-ez.a.run.app
+
+
 ## 🌟 Vision
 
 Traditional studying often lacks the interactive element of having someone to discuss concepts with. Socratica fills this gap by providing an AI tutor that:
