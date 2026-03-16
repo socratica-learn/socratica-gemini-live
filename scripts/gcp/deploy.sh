@@ -46,6 +46,26 @@ terraform_import_if_untracked() {
   fi
 }
 
+terraform_import_service_if_untracked() {
+  local address="$1"
+  local import_id="$2"
+
+  if terraform_state_has "${address}"; then
+    return 0
+  fi
+
+  if terraform -chdir="${TERRAFORM_DIR}" import \
+    -var="organization_id=${ORG_ID}" \
+    -var="project_id=${PROJECT_ID}" \
+    -var="region=${REGION}" \
+    -var="deploy_services=true" \
+    -var="backend_image=import-placeholder" \
+    -var="frontend_image=import-placeholder" \
+    "${address}" "${import_id}" >/dev/null 2>&1; then
+    echo "Imported existing Terraform resource: ${address}"
+  fi
+}
+
 ensure_adc_quota_project() {
   if ! gcloud auth application-default set-quota-project "${PROJECT_ID}" >/dev/null 2>&1; then
     echo "Failed to set the ADC quota project to ${PROJECT_ID}." >&2
@@ -81,8 +101,12 @@ ensure_adc_quota_project
 
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 ARTIFACT_REGISTRY_REPOSITORY="socratica"
+BACKEND_SERVICE_NAME="socratica-backend"
+FRONTEND_SERVICE_NAME="socratica-frontend"
 BACKEND_SERVICE_ACCOUNT_EMAIL="socratica-backend@${PROJECT_ID}.iam.gserviceaccount.com"
 FRONTEND_SERVICE_ACCOUNT_EMAIL="socratica-frontend@${PROJECT_ID}.iam.gserviceaccount.com"
+ORG_POLICY_NAME="organizations/${ORG_ID}/policies/iam.managed.disableServiceAccountApiKeyCreation"
+PROJECT_POLICY_NAME="projects/${PROJECT_ID}/policies/iam.managed.disableServiceAccountApiKeyCreation"
 SECRET_IMPORT_KEYS=(
   "mongodb_uri:socratica-mongodb-uri"
   "jwt_secret:socratica-jwt-secret"
@@ -149,6 +173,19 @@ for build_role_entry in "${BUILD_ROLE_IMPORTS[@]}"; do
     "google_project_iam_member.build_roles[\"${build_member}|${build_role}\"]" \
     "${PROJECT_ID} ${build_role} ${build_member}"
 done
+
+terraform_import_if_untracked \
+  'google_org_policy_policy.org_disable_service_account_api_key_creation_managed' \
+  "${ORG_POLICY_NAME}"
+terraform_import_if_untracked \
+  'google_org_policy_policy.project_disable_service_account_api_key_creation_managed' \
+  "${PROJECT_POLICY_NAME}"
+terraform_import_service_if_untracked \
+  'google_cloud_run_v2_service.backend[0]' \
+  "projects/${PROJECT_ID}/locations/${REGION}/services/${BACKEND_SERVICE_NAME}"
+terraform_import_service_if_untracked \
+  'google_cloud_run_v2_service.frontend[0]' \
+  "projects/${PROJECT_ID}/locations/${REGION}/services/${FRONTEND_SERVICE_NAME}"
 
 terraform -chdir="${TERRAFORM_DIR}" apply -auto-approve \
   "${BOOTSTRAP_TARGETS[@]/#/-target=}" \
