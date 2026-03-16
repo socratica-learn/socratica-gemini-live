@@ -1624,13 +1624,15 @@ const startLiveSession = async () => {
         onopen: () => {},
         onmessage: (message) => { void handleServerMessage(message) },
         onerror: (event) => {
-          connectionState.value = 'error'
           console.error('Gemini Live error:', event)
+          connectionState.value = 'error'
+          void cleanupAfterDisconnect()
         },
         onclose: () => {
           if (connectionState.value === 'connected') {
             connectionState.value = 'idle'
           }
+          void cleanupAfterDisconnect()
         },
       },
     })

@@ -133,7 +133,7 @@ variable "gemini_model" {
 variable "gemini_live_model" {
   description = "Default Gemini Live model."
   type        = string
-  default     = "gemini-live-2.5-flash-native-audio"
+  default     = "gemini-2.5-flash-native-audio-preview-12-2025"
 }
 
 variable "mail_host" {

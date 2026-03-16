@@ -54,7 +54,7 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     @Value("${socratica.gemini.location:europe-west4}")
     private String location;
 
-    @Value("${socratica.gemini.live-model:gemini-live-2.5-flash-native-audio}")
+    @Value("${socratica.gemini.live-model:gemini-2.5-flash-native-audio-preview-12-2025}")
     private String liveModel;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
