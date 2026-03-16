@@ -18,24 +18,21 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * WebSocket proxy handler that sits between the browser and the Vertex AI Live
- * API.
+ * WebSocket proxy handler that sits between the browser and the Gemini Live API.
  *
- * The browser connects to /api/ai/live/proxy. This handler opens a
- * corresponding
- * WebSocket to Vertex AI using server-side credentials and forwards messages in
- * both
- * directions transparently.
+ * Supports two auth modes:
+ *  - Vertex AI (when GOOGLE_CLOUD_PROJECT is set): uses Application Default Credentials
+ *  - Google AI Studio (when only GEMINI_API_KEY is set): uses API key in the URL
  *
- * The only transformation applied is injecting the configured model name into
- * the
- * initial "setup" message that the browser sends, so the browser does not need
- * to
- * know which model is in use.
+ * Messages arriving before the upstream Gemini socket is ready are queued and
+ * flushed once the connection opens, preventing the common race-condition where
+ * the setup message is dropped.
  */
 @Component
 @Slf4j
@@ -44,6 +41,9 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
     private static final String VERTEX_AI_WS_BASE_TEMPLATE = "wss://%s-aiplatform.googleapis.com/ws/"
             + "google.cloud.aiplatform.v1.LlmBidiService/BidiGenerateContent";
+
+    private static final String GOOGLE_AI_WS_TEMPLATE = "wss://generativelanguage.googleapis.com/ws/"
+            + "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=%s";
 
     @Value("${socratica.gemini.project-id:}")
     private String projectId;
@@ -64,44 +64,69 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     /** Maps browser session ID → open Gemini WebSocket. */
     private final Map<String, WebSocket> geminiSockets = new ConcurrentHashMap<>();
 
+    /**
+     * Messages that arrive before the Gemini WS is ready are queued here.
+     * Once the socket opens, the queue is drained in order.
+     */
+    private final Map<String, Queue<String>> pendingMessages = new ConcurrentHashMap<>();
+
     // ─── Browser → Backend ────────────────────────────────────────────────────
 
     @Override
     public void afterConnectionEstablished(WebSocketSession browserSession) {
         log.debug("Browser WS connected: {}", browserSession.getId());
 
-        if (projectId == null || projectId.isBlank()) {
-            log.error("GOOGLE_CLOUD_PROJECT is not configured — rejecting proxy session {}", browserSession.getId());
-            if (apiKey != null && !apiKey.isBlank()) {
-                sendErrorAndClose(browserSession,
-                        "Live voice sessions still require Vertex AI credentials. GEMINI_API_KEY only enables local backend Gemini calls.");
-                return;
-            }
-            sendErrorAndClose(browserSession, "GOOGLE_CLOUD_PROJECT is not configured on the server.");
+        boolean useVertexAi = projectId != null && !projectId.isBlank();
+        boolean useApiKey = !useVertexAi && apiKey != null && !apiKey.isBlank();
+
+        if (!useVertexAi && !useApiKey) {
+            log.error("Neither GOOGLE_CLOUD_PROJECT nor GEMINI_API_KEY is configured — rejecting proxy session {}", browserSession.getId());
+            sendErrorAndClose(browserSession, "No Gemini credentials configured on the server. Set GOOGLE_CLOUD_PROJECT or GEMINI_API_KEY.");
             return;
         }
 
-        String geminiUrl = String.format(VERTEX_AI_WS_BASE_TEMPLATE, location);
-        WebSocket.Builder wsBuilder = httpClient.newWebSocketBuilder();
-        log.debug("Using Vertex AI WebSocket endpoint: {}", geminiUrl);
+        // Create the pending queue before starting the async connect so messages
+        // arriving during the handshake are buffered rather than dropped.
+        pendingMessages.put(browserSession.getId(), new ConcurrentLinkedQueue<>());
 
-        try {
-            String accessToken = googleAccessTokenService.getCloudPlatformAccessToken();
-            wsBuilder.header("Authorization", "Bearer " + accessToken);
-            wsBuilder.header("x-goog-user-project", projectId);
-        } catch (RuntimeException e) {
-            log.error("Vertex AI auth failed for session {}: {}", browserSession.getId(), e.getMessage());
-            sendErrorAndClose(browserSession, "Failed to acquire Vertex AI credentials on the server.");
-            return;
+        String geminiUrl;
+        WebSocket.Builder wsBuilder = httpClient.newWebSocketBuilder();
+
+        if (useVertexAi) {
+            geminiUrl = String.format(VERTEX_AI_WS_BASE_TEMPLATE, location);
+            log.debug("Using Vertex AI WebSocket endpoint: {}", geminiUrl);
+            try {
+                String accessToken = googleAccessTokenService.getCloudPlatformAccessToken();
+                wsBuilder.header("Authorization", "Bearer " + accessToken);
+                wsBuilder.header("x-goog-user-project", projectId);
+            } catch (RuntimeException e) {
+                log.error("Vertex AI auth failed for session {}: {}", browserSession.getId(), e.getMessage());
+                pendingMessages.remove(browserSession.getId());
+                sendErrorAndClose(browserSession, "Failed to acquire Vertex AI credentials on the server.");
+                return;
+            }
+        } else {
+            geminiUrl = String.format(GOOGLE_AI_WS_TEMPLATE, apiKey);
+            log.debug("Using Google AI Studio WebSocket endpoint (API key auth)");
         }
 
         wsBuilder.buildAsync(URI.create(geminiUrl), new GeminiListener(browserSession))
                 .thenAccept(geminiWs -> {
                     geminiSockets.put(browserSession.getId(), geminiWs);
                     log.debug("Gemini WS opened for browser session {}", browserSession.getId());
+                    // Flush any messages that arrived before the socket was ready.
+                    Queue<String> queued = pendingMessages.remove(browserSession.getId());
+                    if (queued != null) {
+                        String msg;
+                        while ((msg = queued.poll()) != null) {
+                            log.debug("Flushing queued message to Gemini for session {}", browserSession.getId());
+                            geminiWs.sendText(msg, true);
+                        }
+                    }
                 })
                 .exceptionally(ex -> {
                     log.error("Failed to open Gemini WS for session {}: {}", browserSession.getId(), ex.getMessage());
+                    pendingMessages.remove(browserSession.getId());
                     sendErrorAndClose(browserSession, "Failed to connect to Gemini: " + ex.getMessage());
                     return null;
                 });
@@ -109,19 +134,28 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession browserSession, TextMessage message) {
+        String payload = injectModelIfSetup(message.getPayload(), browserSession.getId());
+
         WebSocket geminiWs = geminiSockets.get(browserSession.getId());
-        if (geminiWs == null) {
-            log.warn("No Gemini WS for session {} — dropping message", browserSession.getId());
+        if (geminiWs != null) {
+            geminiWs.sendText(payload, true);
             return;
         }
 
-        String payload = injectModelIfSetup(message.getPayload(), browserSession.getId());
-        geminiWs.sendText(payload, true);
+        // Gemini socket not open yet — queue the message.
+        Queue<String> queue = pendingMessages.get(browserSession.getId());
+        if (queue != null) {
+            log.debug("Gemini WS not ready for session {} — queuing message", browserSession.getId());
+            queue.add(payload);
+        } else {
+            log.warn("No Gemini WS and no pending queue for session {} — dropping message", browserSession.getId());
+        }
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession browserSession, CloseStatus status) {
         log.debug("Browser WS closed: {} ({})", browserSession.getId(), status);
+        pendingMessages.remove(browserSession.getId());
         WebSocket geminiWs = geminiSockets.remove(browserSession.getId());
         if (geminiWs != null) {
             geminiWs.sendClose(1000, "Browser disconnected");
@@ -131,6 +165,7 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
     @Override
     public void handleTransportError(WebSocketSession browserSession, Throwable ex) {
         log.error("Transport error for session {}: {}", browserSession.getId(), ex.getMessage());
+        pendingMessages.remove(browserSession.getId());
         WebSocket geminiWs = geminiSockets.remove(browserSession.getId());
         if (geminiWs != null) {
             geminiWs.sendClose(1011, "Transport error");
@@ -150,7 +185,7 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
                 return payload;
             }
             ObjectNode setup = (ObjectNode) root.get("setup");
-            String model = resolveVertexModelResource();
+            String model = resolveModelResource();
             setup.put("model", model);
             String modified = objectMapper.writeValueAsString(root);
             log.debug("Setup message for session {} — injected model '{}'", sessionId, model);
@@ -228,18 +263,20 @@ public class GeminiLiveProxyHandler extends TextWebSocketHandler {
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
-    private String resolveVertexModelResource() {
-        if (liveModel.startsWith("projects/")) {
-            return liveModel;
+    private String resolveModelResource() {
+        // Vertex AI — build the full resource path.
+        if (projectId != null && !projectId.isBlank()) {
+            if (liveModel.startsWith("projects/")) {
+                return liveModel;
+            }
+            if (liveModel.startsWith("publishers/")) {
+                return String.format("projects/%s/locations/%s/%s", projectId, location, liveModel);
+            }
+            return String.format("projects/%s/locations/%s/publishers/google/models/%s",
+                    projectId, location, liveModel);
         }
-        if (liveModel.startsWith("publishers/")) {
-            return String.format("projects/%s/locations/%s/%s", projectId, location, liveModel);
-        }
-        if (projectId == null || projectId.isBlank()) {
-            throw new IllegalStateException("GOOGLE_CLOUD_PROJECT must be set for Vertex AI live sessions.");
-        }
-        return String.format("projects/%s/locations/%s/publishers/google/models/%s",
-                projectId, location, liveModel);
+        // Google AI Studio — bare model name.
+        return liveModel;
     }
 
     private void sendErrorAndClose(WebSocketSession session, String message) {
